@@ -6,7 +6,7 @@ const LOCALES = { de: 'Deutsch', en: 'English' };
 
 const STRINGS = {
   de: {
-    'app.title': 'Imkereitagebuch',
+    'app.title': 'Apiary-Journal',
     'app.subtitle': 'Völker, Durchsichten, Ernte',
 
     'nav.journal': 'Tagebuch',
@@ -463,7 +463,7 @@ const STRINGS = {
   },
 
   en: {
-    'app.title': 'Beekeeping Journal',
+    'app.title': 'Apiary-Journal',
     'app.subtitle': 'Colonies, inspections, harvest',
 
     'nav.journal': 'Journal',

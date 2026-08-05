@@ -74,7 +74,7 @@ The full walkthrough with DSM screenshots-worth of detail is in
 3. Copy this folder to `/volume1/web/beekeeping` (or any folder served by a
    Web Station web portal).
 4. Make `api/` writable for the web server user (`http`), and create the
-   backup directory (default `/volume1/beekeeping-backups`) with read/write
+   backup directory (default `/volume1/Backup/apiary-journal`) with read/write
    for `http`.
 5. Open `http://<nas>:<port>/install.php`, fill in the database credentials and
    create the first administrator.
@@ -129,7 +129,7 @@ Two independent layers, use both:
 
 - **In the app** (Backup page, administrators only): creates a compressed JSON
   snapshot of all tables in the configured `backup_dir` (default
-  `/volume1/beekeeping-backups`). Restore replaces the data, after
+  `/volume1/Backup/apiary-journal`). Restore replaces the data, after
   automatically taking a snapshot of the current state first. You can keep the
   existing user accounts while replacing journal data. The SQL export produces
   a dump for phpMyAdmin or the `mysql` client.
@@ -150,7 +150,7 @@ Two independent layers, use both:
   restricting the portal to your LAN or a VPN.
 - Delete `install.php` after setup; it refuses to run once users exist, but it
   does not belong on a live system.
-- `backup_dir` defaults to `/volume1/beekeeping-backups`, outside the web
+- `backup_dir` defaults to `/volume1/Backup/apiary-journal`, outside the web
   root, because snapshots contain all data including password hashes. If you
   point it back into the web folder, note that nginx on DSM ignores the
   bundled `.htaccess`; only the random file name suffix protects the files.

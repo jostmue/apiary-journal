@@ -27,7 +27,7 @@ return [
         // including password hashes, and nginx on DSM does not honour the
         // .htaccess that protects the bundled backups/ folder.
         // Fallback (works, but inside the web root): __DIR__ . '/../backups'
-        'backup_dir'      => '/volume1/beekeeping-backups',
+        'backup_dir'      => '/volume1/Backup/apiary-journal',
 
         // Keep at most this many automatic/manual backups; older ones are
         // removed when a new backup is created. 0 = keep everything.
