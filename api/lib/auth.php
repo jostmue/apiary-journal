@@ -94,10 +94,31 @@ function user_public(array $row): array
     ];
 }
 
+/** Failed attempts within this window lock the account name / address. */
+const LOGIN_MAX_ATTEMPTS  = 5;
+const LOGIN_WINDOW_MINUTES = 15;
+
+function login_is_locked(string $username): bool
+{
+    $stmt = db()->prepare(
+        "SELECT COUNT(*) FROM activity_log
+         WHERE action = 'login_failed'
+           AND created_at > (NOW() - INTERVAL " . LOGIN_WINDOW_MINUTES . " MINUTE)
+           AND (detail = ? OR ip = ?)"
+    );
+    $stmt->execute([$username, $_SERVER['REMOTE_ADDR'] ?? '']);
+    return (int)$stmt->fetchColumn() >= LOGIN_MAX_ATTEMPTS;
+}
+
 function do_login(string $username, string $password): void
 {
     // Small delay makes brute forcing over the LAN unattractive.
     usleep(250000);
+
+    if (login_is_locked($username)) {
+        log_activity('login_locked', 'users', null, $username);
+        fail('too_many_attempts', 429);
+    }
 
     $stmt = db()->prepare('SELECT * FROM users WHERE username = ? LIMIT 1');
     $stmt->execute([$username]);

@@ -183,6 +183,18 @@ function handle_report(): void
     ]);
 }
 
+/**
+ * Excel and LibreOffice execute cell values starting with =, +, - or @ as
+ * formulas. A leading apostrophe forces plain text.
+ */
+function csv_text($v)
+{
+    if (is_string($v) && $v !== '' && strpbrk($v[0], "=+-@\t\r") !== false) {
+        return "'" . $v;
+    }
+    return $v;
+}
+
 /** GET download: api/index.php?r=reports/csv&filter=<urlencoded json>&csrf=... */
 function handle_report_csv(): void
 {
@@ -199,8 +211,9 @@ function handle_report_csv(): void
     fputcsv($out, ['date', 'type', 'apiary', 'colony', 'user', 'summary', 'notes'], ';');
     foreach ($rows as $r) {
         fputcsv($out, [
-            $r['record_date'], $r['record_type'], $r['apiary_name'],
-            $r['colony_name'], $r['user_name'], $r['summary'], $r['notes'],
+            $r['record_date'], $r['record_type'], csv_text($r['apiary_name']),
+            csv_text($r['colony_name']), csv_text($r['user_name']),
+            csv_text($r['summary']), csv_text($r['notes']),
         ], ';');
     }
     fclose($out);

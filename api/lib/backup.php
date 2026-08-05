@@ -26,7 +26,17 @@ function backup_dir(): string
     if (!is_dir($dir) || !is_writable($dir)) {
         fail('backup_dir_not_writable', 500, $dir);
     }
-    return rtrim($dir, '/');
+    $dir = rtrim($dir, '/');
+
+    // If the directory sits inside the web root anyway, an index file at
+    // least prevents directory listings; nginx on DSM ignores .htaccess,
+    // so the random file name suffix is the remaining protection there.
+    $docRoot = realpath((string)($_SERVER['DOCUMENT_ROOT'] ?? ''));
+    $real    = realpath($dir);
+    if ($docRoot && $real && strpos($real, $docRoot) === 0 && !is_file($dir . '/index.html')) {
+        @file_put_contents($dir . '/index.html', '');
+    }
+    return $dir;
 }
 
 function backup_safe_name(string $name): string

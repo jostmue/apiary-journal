@@ -21,8 +21,13 @@ return [
     // --- Application -------------------------------------------------------
     'app' => [
         // Absolute path of the directory used for database backups.
-        // Must be writable by the web server user (http on DSM).
-        'backup_dir'      => __DIR__ . '/../backups',
+        // Must be writable by the web server user (http on DSM):
+        // create the folder in File Station and grant "http" read/write.
+        // Keep this OUTSIDE the web root - snapshots contain all data
+        // including password hashes, and nginx on DSM does not honour the
+        // .htaccess that protects the bundled backups/ folder.
+        // Fallback (works, but inside the web root): __DIR__ . '/../backups'
+        'backup_dir'      => '/volume1/beekeeping-backups',
 
         // Keep at most this many automatic/manual backups; older ones are
         // removed when a new backup is created. 0 = keep everything.

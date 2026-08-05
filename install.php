@@ -42,7 +42,9 @@ $checks = [
     'PDO MySQL extension'   => extension_loaded('pdo_mysql'),
     'JSON extension'        => extension_loaded('json'),
     'api/ is writable'      => is_writable(__DIR__ . '/api'),
-    'backups/ is writable'  => is_dir(__DIR__ . '/backups') ? is_writable(__DIR__ . '/backups') : is_writable(__DIR__),
+    'backup dir is writable (backup_dir in api/config.example.php)'
+        => ($backupDirCheck = (require __DIR__ . '/api/config.example.php')['app']['backup_dir'])
+           && is_dir($backupDirCheck) && is_writable($backupDirCheck),
     'schema file present'   => is_file($schemaFile),
     'outbound HTTPS (weather)' => function_exists('curl_init') || ini_get('allow_url_fopen'),
 ];

@@ -73,7 +73,9 @@ The full walkthrough with DSM screenshots-worth of detail is in
 2. Create a database `beekeeping` and a database user with all privileges on it.
 3. Copy this folder to `/volume1/web/beekeeping` (or any folder served by a
    Web Station web portal).
-4. Make `api/` and `backups/` writable for the web server user (`http`).
+4. Make `api/` writable for the web server user (`http`), and create the
+   backup directory (default `/volume1/beekeeping-backups`) with read/write
+   for `http`.
 5. Open `http://<nas>:<port>/install.php`, fill in the database credentials and
    create the first administrator.
 6. **Delete `install.php`.** Then open `index.html` and sign in.
@@ -126,7 +128,8 @@ anything not listed there cannot be written, whatever the client sends.
 Two independent layers, use both:
 
 - **In the app** (Backup page, administrators only): creates a compressed JSON
-  snapshot of all tables in `backups/`. Restore replaces the data, after
+  snapshot of all tables in the configured `backup_dir` (default
+  `/volume1/beekeeping-backups`). Restore replaces the data, after
   automatically taking a snapshot of the current state first. You can keep the
   existing user accounts while replacing journal data. The SQL export produces
   a dump for phpMyAdmin or the `mysql` client.
@@ -139,14 +142,18 @@ Two independent layers, use both:
 
 - Passwords are hashed with bcrypt (`password_hash`), sessions are HttpOnly and
   SameSite=Lax, and every writing request is CSRF-checked.
+- After 5 failed sign-in attempts within 15 minutes (per user name or address),
+  further attempts are rejected for the rest of the window.
 - Put the site behind HTTPS. On DSM, either use a reverse proxy with a Let's
   Encrypt certificate, or a certificate on the Web Station portal itself.
 - Do not expose the NAS to the internet without a reverse proxy, and consider
   restricting the portal to your LAN or a VPN.
 - Delete `install.php` after setup; it refuses to run once users exist, but it
   does not belong on a live system.
-- Ideally move `backup_dir` to a path outside the web root, for example
-  `/volume1/beekeeping-backups`.
+- `backup_dir` defaults to `/volume1/beekeeping-backups`, outside the web
+  root, because snapshots contain all data including password hashes. If you
+  point it back into the web folder, note that nginx on DSM ignores the
+  bundled `.htaccess`; only the random file name suffix protects the files.
 
 ## Weather data
 

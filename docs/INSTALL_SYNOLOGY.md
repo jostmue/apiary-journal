@@ -56,13 +56,16 @@ The web server runs as user `http`. In **File Station**, right-click the
 read/write on:
 
 - `api/` (the installer writes `config.php` there)
-- `backups/` (snapshots are written there)
+- the backup directory (default `/volume1/beekeeping-backups` - create this
+  shared folder or directory first; it deliberately lives **outside** the web
+  root because snapshots contain all data including password hashes)
 
 Read access is enough for everything else. With SSH:
 
 ```bash
-sudo chown -R http:http /volume1/web/beekeeping/api /volume1/web/beekeeping/backups
-sudo chmod 750 /volume1/web/beekeeping/api /volume1/web/beekeeping/backups
+sudo mkdir -p /volume1/beekeeping-backups
+sudo chown -R http:http /volume1/web/beekeeping/api /volume1/beekeeping-backups
+sudo chmod 750 /volume1/web/beekeeping/api /volume1/beekeeping-backups
 ```
 
 ## 6. Run the setup wizard
@@ -106,9 +109,10 @@ Open `http://<nas-ip>:8080/` and sign in.
 
 ## 9. Backups
 
-- In the app: **Backup → Create backup now**. Snapshots land in `backups/`,
+- In the app: **Backup → Create backup now**. Snapshots land in the
+  `backup_dir` from `api/config.php` (default `/volume1/beekeeping-backups`),
   can be downloaded, uploaded and restored, and old ones are pruned according
-  to `backup_keep` in `api/config.php`.
+  to `backup_keep`.
 - On the NAS: back up the MariaDB database with **Hyper Backup** (it has a
   MariaDB task) and include the web folder. This is the layer that survives a
   broken volume; the in-app snapshots do not.
