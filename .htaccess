@@ -1,7 +1,0 @@
-# Verzeichnislisting verhindern
-Options -Indexes
-
-# Sensible Ordner sperren (zusätzlich zu den .htaccess-Dateien darin)
-<FilesMatch "\.(sql|md)$">
-    Require all denied
-</FilesMatch>

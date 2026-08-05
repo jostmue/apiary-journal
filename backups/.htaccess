@@ -1,0 +1,3 @@
+# Never hand out backup files over HTTP; downloads go through the API, which
+# checks the session and the administrator role.
+Require all denied

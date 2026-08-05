@@ -1,1 +1,8 @@
-config/config.php
+api/config.php
+backups/*.bjb.json
+backups/*.bjb.json.gz
+
+# Synology Drive / Windows / Tooling
+.SynologyWorkingDirectory/
+desktop.ini
+.claude/

@@ -1,0 +1,5 @@
+# Apache only. On nginx (DSM default for Web Station) config.php is still safe:
+# it is a PHP file that produces no output when requested directly.
+<FilesMatch "^config\.php$">
+  Require all denied
+</FilesMatch>

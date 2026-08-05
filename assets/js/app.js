@@ -1,1026 +1,1185 @@
-/* ==========================================================
-   Imkerei-Tagebuch – Frontend-Logik (Vanilla JS, kein Build nötig)
-   ========================================================== */
+/* Beekeeping Journal - application shell, views and forms. */
 
-const CSRF_TOKEN = window.CSRF_TOKEN;
-const CURRENT_USER = window.CURRENT_USER;
+/* ------------------------------------------------------------------ utils */
 
-/* ---------------- API-Client ---------------- */
-async function api(res, action, { method = 'GET', params = {}, body = null } = {}) {
-    const query = new URLSearchParams({ res, action, ...params }).toString();
-    const opts = {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-    };
-    if (method !== 'GET') opts.headers['X-CSRF-Token'] = CSRF_TOKEN;
-    if (body) opts.body = JSON.stringify(body);
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-    const r = await fetch(`api.php?${query}`, opts);
-    let data;
-    try { data = await r.json(); } catch { data = {}; }
-    if (!r.ok || data.error) {
-        throw new Error(data.error || `Fehler (${r.status})`);
-    }
-    return data.data;
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  return String(v).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
 }
 
-function toast(msg, type = 'success') {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.className = 'toast ' + type;
-    el.hidden = false;
-    clearTimeout(toast._t);
-    toast._t = setTimeout(() => { el.hidden = true; }, 3200);
+function toast(message, bad = false) {
+  const host = $('#toasts');
+  const node = document.createElement('div');
+  node.className = 'toast' + (bad ? ' toast--bad' : '');
+  node.textContent = message;
+  host.appendChild(node);
+  setTimeout(() => node.remove(), 4200);
 }
 
-/* ---------------- Konstanten / Dropdown-Optionen ---------------- */
-const RASSEN = ['Carnica', 'Buckfast', 'Ligustica (Italienerbiene)', 'Mellifera (Dunkle Biene)', 'Elgon', 'Andere/Mischling'];
-const BEUTENTYPEN = ['Zander', 'Deutsch Normal', 'Dadant', 'Segeberger', 'Langstroth', 'Warré', 'Andere'];
-const HERKUNFT_VOLK = ['Schwarm', 'Kauf', 'Ableger', 'Teilung', 'Kunstschwarm'];
-const VOLK_STATUS = { aktiv: 'Aktiv', ueberwintert: 'Überwintert', aufgeloest: 'Aufgelöst', verkauft: 'Verkauft', verloren: 'Verloren' };
-const FARBEN_KOENIGIN = ['Weiß (0/5)', 'Gelb (1/6)', 'Rot (2/7)', 'Grün (3/8)', 'Blau (4/9)'];
-const FUTTERARTEN = ['Zuckerwasser 1:1', 'Zuckerwasser 3:2', 'Futterteig', 'Invertzuckersirup', 'Honig (volkseigen)', 'Andere'];
-const BEHANDLUNGSMITTEL = ['Ameisensäure 60% (Verdunster)', 'Oxalsäure (Träufeln)', 'Oxalsäure (Sublimation)', 'Milchsäure', 'Thymolpräparat', 'Andere'];
-const WEISELRICHTIG = { ja: 'Ja', nein: 'Nein', unsicher: 'Unsicher' };
-const VARROA_STUFEN = { keiner: 'Keiner erkennbar', gering: 'Gering', mittel: 'Mittel', hoch: 'Hoch', unbekannt: 'Unbekannt' };
+function showError(e) {
+  const key = (e && e.message) || 'err.server_error';
+  toast(t(key) + (e && e.detail ? ` (${e.detail})` : ''), true);
+  if (key === 'err.auth_required' || key === 'err.csrf_invalid') {
+    session.user = null;
+    renderLogin();
+  }
+}
 
-function opts(list, selected) {
-    return list.map(v => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
+function fmtDate(v) {
+  if (!v) return '';
+  const d = new Date(String(v).replace(' ', 'T'));
+  if (isNaN(d)) return String(v).slice(0, 10);
+  return d.toLocaleDateString(getLocale() === 'de' ? 'de-DE' : 'en-GB');
 }
-function optsMap(map, selected) {
-    return Object.entries(map).map(([k, v]) => `<option value="${esc(k)}" ${k === selected ? 'selected' : ''}>${esc(v)}</option>`).join('');
-}
-function esc(s) {
-    if (s === null || s === undefined) return '';
-    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-function fmtDate(d) {
-    if (!d) return '–';
-    const [y, m, day] = d.split('-');
-    return `${day}.${m}.${y}`;
-}
-function fmtDateTime(dt) {
-    if (!dt) return '–';
-    const d = new Date(dt.replace(' ', 'T'));
-    return d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-}
-function todayISO() { return new Date().toISOString().slice(0, 10); }
 
-/* ---------------- Modal ---------------- */
-const modalOverlay = document.getElementById('modalOverlay');
-const modalBody = document.getElementById('modalBody');
-const modalTitle = document.getElementById('modalTitle');
-
-function openModal(title, html) {
-    modalTitle.textContent = title;
-    modalBody.innerHTML = html;
-    modalOverlay.hidden = false;
+function fmtDateTime(v) {
+  if (!v) return '';
+  const d = new Date(String(v).replace(' ', 'T'));
+  if (isNaN(d)) return String(v);
+  const loc = getLocale() === 'de' ? 'de-DE' : 'en-GB';
+  return d.toLocaleDateString(loc) + ' ' + d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
 }
-function closeModal() {
-    modalOverlay.hidden = true;
-    modalBody.innerHTML = '';
+
+function toInputValue(v, type) {
+  if (!v) return '';
+  const s = String(v).replace(' ', 'T');
+  return type === 'datetime' ? s.slice(0, 16) : s.slice(0, 10);
 }
-document.getElementById('modalClose').addEventListener('click', closeModal);
-modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
 
-/* ---------------- Sidebar (mobil) ---------------- */
-const sidebar = document.getElementById('sidebar');
-document.getElementById('menuToggle').addEventListener('click', () => sidebar.classList.toggle('open'));
-document.querySelectorAll('.nav-link').forEach(a => a.addEventListener('click', () => sidebar.classList.remove('open')));
-
-/* ---------------- Logout ---------------- */
-document.getElementById('logoutBtn').addEventListener('click', async () => {
-    await api('auth', 'logout', { method: 'POST' });
-    window.location.href = 'login.php';
-});
-
-/* ---------------- Cache für Dropdown-Daten ---------------- */
-let CACHE = { standorte: [], voelker: [] };
-async function loadBaseData() {
-    CACHE.standorte = await api('standorte', 'list');
-    CACHE.voelker = await api('voelker', 'list');
+function nowLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
 }
-function standortName(id) { return CACHE.standorte.find(s => +s.id === +id)?.name || '–'; }
-function volkLabel(v) { return `${v.bezeichnung} (${v.standort_name || standortName(v.standort_id)})`; }
 
-/* ==========================================================
-   ROUTER
-   ========================================================== */
-const view = document.getElementById('view');
-const routes = {
-    dashboard: renderDashboard,
-    standorte: renderStandorte,
-    voelker: renderVoelkerListe,
-    'voelker/:id': renderVolkDetail,
-    durchsichten: renderDurchsichtenListe,
-    fuetterungen: renderFuetterungenListe,
-    behandlungen: renderBehandlungenListe,
-    ernte: renderErnteListe,
-    aufgaben: renderAufgaben,
-    benutzer: renderBenutzer,
+function todayLocal() {
+  return nowLocal().slice(0, 10);
+}
+
+function optLabel(group, value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (group === 'locale_opts') return LOCALES[value] || value;
+  return t(`opt.${group}.${value}`);
+}
+
+const state = {
+  apiaries: [],
+  colonies: [],
+  users: [],
+  route: '',
+  reportFilter: null
 };
 
-async function router() {
-    const hash = window.location.hash.replace(/^#\//, '') || 'dashboard';
-    const parts = hash.split('/');
-    document.querySelectorAll('.nav-link').forEach(a => {
-        a.classList.toggle('active', a.dataset.view === parts[0]);
-    });
+const canWrite = () => session.user && (session.user.role === 'admin' || session.user.role === 'beekeeper');
+const isAdmin = () => session.user && session.user.role === 'admin';
 
-    view.innerHTML = '<div class="empty-state">Lädt…</div>';
-    try {
-        await loadBaseData();
-        if (parts[0] === 'voelker' && parts[1]) {
-            await renderVolkDetail(parts[1], parts[2] || 'durchsichten');
-        } else if (routes[parts[0]]) {
-            await routes[parts[0]]();
-        } else {
-            await renderDashboard();
-        }
-    } catch (err) {
-        view.innerHTML = `<div class="empty-state">⚠️ ${esc(err.message)}</div>`;
+/* ------------------------------------------------------------------- boot */
+
+document.addEventListener('DOMContentLoaded', boot);
+
+async function boot() {
+  setLocale(getLocale());
+  try {
+    const me = await api('auth/me');
+    session.weatherEnabled = !!me.weather;
+    if (me.user) {
+      session.user = me.user;
+      session.csrf = me.csrf;
+      setLocale(me.user.locale || getLocale());
+      await startApp();
+    } else {
+      setLocale(me.locale || getLocale());
+      renderLogin();
     }
-}
-window.addEventListener('hashchange', router);
-window.addEventListener('DOMContentLoaded', router);
-
-/* ==========================================================
-   DASHBOARD
-   ========================================================== */
-async function renderDashboard() {
-    const s = await api('dashboard', 'stats');
-    view.innerHTML = `
-    <div class="view-header"><h1>Übersicht</h1></div>
-    <div class="grid cols-4" style="margin-bottom:24px">
-        <div class="card stat-card"><div class="stat-value">${s.anzahl_voelker}</div><div class="stat-label">Aktive Völker</div></div>
-        <div class="card stat-card"><div class="stat-value">${s.anzahl_standorte}</div><div class="stat-label">Standorte</div></div>
-        <div class="card stat-card"><div class="stat-value">${s.anzahl_offene_aufgaben}</div><div class="stat-label">Offene Aufgaben</div></div>
-        <div class="card stat-card"><div class="stat-value">${s.ernte_jahr_kg.toLocaleString('de-DE')} kg</div><div class="stat-label">Ernte ${new Date().getFullYear()}</div></div>
-    </div>
-
-    <div class="grid cols-2">
-        <div class="card">
-            <h3 style="margin-top:0">🕒 Letzte Durchsichten</h3>
-            ${s.letzte_durchsichten.length ? `<table><tbody>
-                ${s.letzte_durchsichten.map(d => `<tr>
-                    <td>${fmtDate(d.datum)}</td>
-                    <td><a href="#/voelker/${d.volk_id ?? ''}">${esc(d.volk_bezeichnung)}</a></td>
-                    <td>${esc(d.standort_name)}</td>
-                    <td>${badgeWeiselrichtig(d.weiselrichtig)}</td>
-                </tr>`).join('')}
-            </tbody></table>` : emptyRow('Noch keine Durchsichten erfasst.')}
-        </div>
-
-        <div class="card">
-            <h3 style="margin-top:0">📌 Nächste Aufgaben</h3>
-            ${s.naechste_aufgaben.length ? `<table><tbody>
-                ${s.naechste_aufgaben.map(a => `<tr>
-                    <td>${esc(a.titel)}</td>
-                    <td>${a.faelligkeit ? fmtDate(a.faelligkeit) : '<span class="hint">ohne Datum</span>'}</td>
-                </tr>`).join('')}
-            </tbody></table>` : emptyRow('Keine offenen Aufgaben. 🎉')}
-        </div>
-    </div>
-
-    ${s.voelker_ohne_durchsicht_30d.length ? `
-    <div class="card" style="margin-top:16px">
-        <h3 style="margin-top:0">⚠️ Länger nicht kontrolliert (&gt; 30 Tage)</h3>
-        <table><tbody>
-            ${s.voelker_ohne_durchsicht_30d.map(v => `<tr>
-                <td><a href="#/voelker/${v.id}">${esc(v.bezeichnung)}</a></td>
-                <td>${esc(v.standort_name)}</td>
-                <td>${v.letzte_durchsicht ? 'Letzte: ' + fmtDate(v.letzte_durchsicht) : 'Noch nie kontrolliert'}</td>
-            </tr>`).join('')}
-        </tbody></table>
-    </div>` : ''}
-    `;
-}
-function emptyRow(text) { return `<p class="hint">${esc(text)}</p>`; }
-function badgeWeiselrichtig(w) {
-    if (w === 'ja') return '<span class="badge green">weiselrichtig</span>';
-    if (w === 'nein') return '<span class="badge red">nicht weiselrichtig</span>';
-    return '<span class="badge gray">unsicher</span>';
+  } catch (e) {
+    renderLogin();
+    showError(e);
+  }
 }
 
-/* ==========================================================
-   STANDORTE
-   ========================================================== */
-async function renderStandorte() {
-    const rows = CACHE.standorte;
-    view.innerHTML = `
-    <div class="view-header">
-        <h1>Standorte</h1>
-        <div class="actions"><button class="btn" onclick="openStandortForm()">+ Neuer Standort</button></div>
-    </div>
-    ${rows.length ? `<div class="grid cols-3">
-        ${rows.map(s => `
-        <div class="card">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                <h3 style="margin:0 0 4px">${esc(s.name)}</h3>
-                <span class="badge honey">${s.anzahl_voelker} Völker</span>
-            </div>
-            <p class="hint" style="margin:2px 0 10px">${esc([s.adresse, [s.plz, s.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || 'Keine Adresse hinterlegt'}</p>
-            ${s.lat ? `<p class="hint">📍 ${(+s.lat).toFixed(4)}, ${(+s.lon).toFixed(4)}</p>` : '<p class="hint">⚠️ Keine Koordinaten – Wetter-Autofill nicht möglich</p>'}
-            <div class="row-actions" style="margin-top:10px">
-                <button class="btn small secondary" onclick="openStandortForm(${s.id})">Bearbeiten</button>
-                <button class="btn small danger" onclick="deleteStandort(${s.id})">Löschen</button>
-            </div>
-        </div>`).join('')}
-    </div>` : `<div class="empty-state"><div class="emoji">📍</div>Noch keine Standorte angelegt.</div>`}
-    `;
-}
+/* ------------------------------------------------------------------ login */
 
-function openStandortForm(id) {
-    const s = id ? CACHE.standorte.find(x => +x.id === id) : {};
-    openModal(id ? 'Standort bearbeiten' : 'Neuer Standort', `
-    <form id="standortForm">
-        <div class="form-row">
-            <label>Name des Standorts *</label>
-            <input type="text" name="name" value="${esc(s.name)}" required placeholder="z.B. Heimgarten, Streuobstwiese Nord ...">
+function renderLogin() {
+  document.body.className = 'login-page';
+  document.body.innerHTML = `
+    <main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <form class="card" id="login-form" autocomplete="on">
+        <h2>${esc(t('login.title'))}</h2>
+        <p class="muted">${esc(t('login.hint'))}</p>
+        <label>${esc(t('common.username'))}
+          <input name="username" autocomplete="username" required autofocus>
+        </label>
+        <label style="margin-top:.7rem">${esc(t('common.password'))}
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <div class="form-actions" style="margin-top:1rem">
+          <button class="btn btn--primary" type="submit">${esc(t('common.login'))}</button>
         </div>
-        <div class="form-grid">
-            <div class="form-row"><label>Adresse <span class="opt">(für Geokodierung)</span></label>
-                <input type="text" name="adresse" value="${esc(s.adresse)}" placeholder="Straße, Hausnummer"></div>
-            <div class="form-row"><label>PLZ / Ort</label>
-                <input type="text" name="ort" value="${esc(s.ort)}" placeholder="z.B. 21244 Buchholz"></div>
-        </div>
-        <div class="form-row">
-            <button type="button" class="btn secondary small" id="geocodeBtn">📍 Koordinaten automatisch ermitteln</button>
-            <span id="geocodeStatus" class="hint"></span>
-        </div>
-        <div class="form-grid">
-            <div class="form-row"><label>Breitengrad (lat)</label>
-                <input type="text" name="lat" id="latInput" value="${esc(s.lat)}" placeholder="z.B. 53.3167"></div>
-            <div class="form-row"><label>Längengrad (lon)</label>
-                <input type="text" name="lon" id="lonInput" value="${esc(s.lon)}" placeholder="z.B. 9.8667"></div>
-        </div>
-        <div class="form-row"><label>Trachtangebot / Umgebung <span class="opt">(optional)</span></label>
-            <input type="text" name="flaeche_info" value="${esc(s.flaeche_info)}" placeholder="z.B. Raps, Linde, Wald im Umkreis"></div>
-        <div class="form-row"><label>Pacht / Ansprechpartner <span class="opt">(optional)</span></label>
-            <input type="text" name="pachtvertrag" value="${esc(s.pachtvertrag)}"></div>
-        <div class="form-row"><label>Notizen</label>
-            <textarea name="notizen">${esc(s.notizen)}</textarea></div>
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
+      </form>
+      <div class="lang-switch">${langButtons()}</div>
+    </main>
+    <div class="toast-host" id="toasts"></div>`;
 
-    document.getElementById('geocodeBtn').addEventListener('click', async () => {
-        const form = document.getElementById('standortForm');
-        const query = [form.adresse.value, form.ort.value].filter(Boolean).join(', ');
-        const statusEl = document.getElementById('geocodeStatus');
-        if (!query) { statusEl.textContent = 'Bitte zuerst Adresse oder Ort eingeben.'; return; }
-        statusEl.textContent = 'Suche…';
-        try {
-            const result = await api('standorte', 'geocode', { method: 'POST', body: { query } });
-            document.getElementById('latInput').value = result.lat;
-            document.getElementById('lonInput').value = result.lon;
-            statusEl.textContent = '✓ Gefunden: ' + result.label;
-        } catch (err) {
-            statusEl.textContent = '⚠️ ' + err.message;
-        }
-    });
-
-    document.getElementById('standortForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const body = Object.fromEntries(fd.entries());
-        try {
-            if (id) await api('standorte', 'update', { method: 'PUT', params: { id }, body });
-            else await api('standorte', 'create', { method: 'POST', body });
-            closeModal();
-            toast('Standort gespeichert.');
-            router();
-        } catch (err) {
-            const el = document.getElementById('formError');
-            el.textContent = err.message; el.hidden = false;
-        }
-    });
-}
-
-async function deleteStandort(id) {
-    if (!confirm('Diesen Standort wirklich löschen?')) return;
+  $('#login-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
     try {
-        await api('standorte', 'delete', { method: 'DELETE', params: { id } });
-        toast('Standort gelöscht.');
-        router();
-    } catch (err) { toast(err.message, 'error'); }
-}
-
-/* ==========================================================
-   VÖLKER – Liste
-   ========================================================== */
-async function renderVoelkerListe() {
-    const rows = CACHE.voelker;
-    view.innerHTML = `
-    <div class="view-header">
-        <h1>Völker</h1>
-        <div class="actions"><button class="btn" onclick="openVolkForm()">+ Neues Volk</button></div>
-    </div>
-    ${rows.length ? `<div class="card table-wrap"><table>
-        <thead><tr><th>Bezeichnung</th><th>Standort</th><th>Rasse</th><th>Beute</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-        ${rows.map(v => `<tr>
-            <td><a href="#/voelker/${v.id}"><strong>${esc(v.bezeichnung)}</strong></a></td>
-            <td>${esc(v.standort_name)}</td>
-            <td>${esc(v.rasse) || '–'}</td>
-            <td>${esc(v.beutentyp) || '–'}</td>
-            <td>${statusBadge(v.status)}</td>
-            <td class="row-actions"><a class="btn small secondary" href="#/voelker/${v.id}">Öffnen</a></td>
-        </tr>`).join('')}
-        </tbody>
-    </table></div>` : `<div class="empty-state"><div class="emoji">🐝</div>Noch keine Völker angelegt.</div>`}
-    `;
-}
-function statusBadge(status) {
-    const cls = status === 'aktiv' ? 'green' : (status === 'verloren' || status === 'aufgeloest' ? 'red' : 'gray');
-    return `<span class="badge ${cls}">${esc(VOLK_STATUS[status] || status)}</span>`;
-}
-
-function openVolkForm(id) {
-    const v = id ? CACHE.voelker.find(x => +x.id === id) : {};
-    if (!CACHE.standorte.length) { toast('Bitte zuerst einen Standort anlegen.', 'error'); return; }
-    openModal(id ? 'Volk bearbeiten' : 'Neues Volk', `
-    <form id="volkForm">
-        <div class="form-grid">
-            <div class="form-row"><label>Bezeichnung *</label>
-                <input type="text" name="bezeichnung" value="${esc(v.bezeichnung)}" required placeholder="z.B. Volk 1 / Stock A"></div>
-            <div class="form-row"><label>Standort *</label>
-                <select name="standort_id" required>${opts_std(v.standort_id)}</select></div>
-        </div>
-        <div class="form-grid cols-3">
-            <div class="form-row"><label>Rasse</label><select name="rasse"><option value="">–</option>${opts(RASSEN, v.rasse)}</select></div>
-            <div class="form-row"><label>Beutentyp</label><select name="beutentyp"><option value="">–</option>${opts(BEUTENTYPEN, v.beutentyp)}</select></div>
-            <div class="form-row"><label>Anzahl Zargen</label><input type="number" min="0" name="anzahl_zargen" value="${esc(v.anzahl_zargen)}"></div>
-        </div>
-        <div class="form-grid cols-3">
-            <div class="form-row"><label>Herkunft</label><select name="herkunft"><option value="">–</option>${opts(HERKUNFT_VOLK, v.herkunft)}</select></div>
-            <div class="form-row"><label>Gründungsdatum</label><input type="date" name="gruendungsdatum" value="${esc(v.gruendungsdatum)}"></div>
-            <div class="form-row"><label>Status</label><select name="status">${optsMap(VOLK_STATUS, v.status || 'aktiv')}</select></div>
-        </div>
-        <h3 style="margin:18px 0 10px">👑 Königin</h3>
-        <div class="form-grid cols-3">
-            <div class="form-row"><label>Zuchtjahr</label><input type="number" name="koenigin_jahr" value="${esc(v.koenigin_jahr)}" placeholder="z.B. 2024"></div>
-            <div class="form-row"><label>Zeichenfarbe</label><select name="koenigin_farbe"><option value="">–</option>${opts(FARBEN_KOENIGIN, v.koenigin_farbe)}</select></div>
-            <div class="form-row"><label>Herkunft der Königin</label><input type="text" name="koenigin_herkunft" value="${esc(v.koenigin_herkunft)}" placeholder="Züchter / Nachzucht"></div>
-        </div>
-        <div class="checkbox-row form-row">
-            <input type="checkbox" id="kgez" name="koenigin_gezeichnet" ${v.koenigin_gezeichnet ? 'checked' : ''}>
-            <label for="kgez">Königin ist gezeichnet</label>
-        </div>
-        <div class="form-row"><label>Notizen</label><textarea name="notizen">${esc(v.notizen)}</textarea></div>
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-
-    document.getElementById('volkForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const body = Object.fromEntries(fd.entries());
-        body.koenigin_gezeichnet = e.target.koenigin_gezeichnet.checked;
-        try {
-            if (id) await api('voelker', 'update', { method: 'PUT', params: { id }, body });
-            else await api('voelker', 'create', { method: 'POST', body });
-            closeModal();
-            toast('Volk gespeichert.');
-            router();
-        } catch (err) {
-            const el = document.getElementById('formError');
-            el.textContent = err.message; el.hidden = false;
-        }
-    });
-}
-function opts_std(selected) {
-    return CACHE.standorte.map(s => `<option value="${s.id}" ${+s.id === +selected ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
-}
-
-async function deleteVolk(id) {
-    if (!confirm('Dieses Volk inkl. aller Durchsichten/Fütterungen/etc. wirklich löschen?')) return;
-    try {
-        await api('voelker', 'delete', { method: 'DELETE', params: { id } });
-        toast('Volk gelöscht.');
-        window.location.hash = '#/voelker';
-    } catch (err) { toast(err.message, 'error'); }
-}
-
-/* ==========================================================
-   VOLK-DETAIL (Stockkarte mit Tabs)
-   ========================================================== */
-async function renderVolkDetail(id, tab = 'durchsichten') {
-    id = +id;
-    let v;
-    try { v = await api('voelker', 'get', { params: { id } }); }
-    catch { view.innerHTML = `<div class="empty-state">Volk nicht gefunden.</div>`; return; }
-
-    view.innerHTML = `
-    <a href="#/voelker" class="hint">&larr; zurück zur Übersicht</a>
-    <div class="volk-header" style="margin-top:8px">
-        <div>
-            <h1 style="margin:0">${esc(v.bezeichnung)} ${statusBadge(v.status)}</h1>
-            <div class="volk-meta">
-                <span>📍 ${esc(v.standort_name)}</span>
-                <span>🧬 ${esc(v.rasse) || 'Rasse unbekannt'}</span>
-                <span>📦 ${esc(v.beutentyp) || '–'}${v.anzahl_zargen ? ' · ' + v.anzahl_zargen + ' Zargen' : ''}</span>
-                ${v.koenigin_jahr ? `<span>👑 Königin ${v.koenigin_jahr}${v.koenigin_farbe ? ' · ' + esc(v.koenigin_farbe) : ''}</span>` : ''}
-            </div>
-        </div>
-        <div class="actions">
-            <button class="btn secondary" onclick='openVolkForm(${v.id})'>Bearbeiten</button>
-            <button class="btn danger" onclick="deleteVolk(${v.id})">Löschen</button>
-        </div>
-    </div>
-    ${v.notizen ? `<div class="card" style="margin-bottom:18px"><strong>Notizen:</strong> ${esc(v.notizen)}</div>` : ''}
-
-    <div class="tabs">
-        <button class="tab-btn ${tab === 'durchsichten' ? 'active' : ''}" onclick="location.hash='#/voelker/${id}/durchsichten'">📋 Durchsichten</button>
-        <button class="tab-btn ${tab === 'fuetterungen' ? 'active' : ''}" onclick="location.hash='#/voelker/${id}/fuetterungen'">🍯 Fütterungen</button>
-        <button class="tab-btn ${tab === 'behandlungen' ? 'active' : ''}" onclick="location.hash='#/voelker/${id}/behandlungen'">💊 Behandlungen</button>
-        <button class="tab-btn ${tab === 'ernte' ? 'active' : ''}" onclick="location.hash='#/voelker/${id}/ernte'">🫙 Ernte</button>
-    </div>
-    <div id="tabContent"></div>
-    `;
-
-    const tabContent = document.getElementById('tabContent');
-    if (tab === 'durchsichten') await renderDurchsichtenTab(tabContent, v);
-    else if (tab === 'fuetterungen') await renderFuetterungenTab(tabContent, v);
-    else if (tab === 'behandlungen') await renderBehandlungenTab(tabContent, v);
-    else if (tab === 'ernte') await renderErnteTab(tabContent, v);
-}
-
-/* -------- Durchsichten Tab -------- */
-async function renderDurchsichtenTab(container, volk) {
-    const rows = await api('durchsichten', 'list', { params: { volk_id: volk.id } });
-    container.innerHTML = `
-    <div class="view-header"><h3 style="margin:0">Durchsichten</h3>
-        <button class="btn small" onclick='openDurchsichtForm(null, ${volk.id})'>+ Neue Durchsicht</button></div>
-    ${rows.length ? `<div class="card table-wrap"><table>
-        <thead><tr><th>Datum</th><th>Wetter</th><th>Weiselrichtig</th><th>Brut</th><th>Varroa</th><th>Maßnahmen</th><th></th></tr></thead>
-        <tbody>${rows.map(d => `<tr>
-            <td>${fmtDate(d.datum)}</td>
-            <td>${d.wetter_temp_c !== null ? `${d.wetter_temp_c}°C ${esc(d.wetter_beschreibung || '')}` : '–'}</td>
-            <td>${badgeWeiselrichtig(d.weiselrichtig)}</td>
-            <td>${['stifte_vorhanden','offene_brut','verdeckelte_brut'].filter(k=>d[k]).map(k=>({stifte_vorhanden:'Stifte',offene_brut:'off. Brut',verdeckelte_brut:'ved. Brut'}[k])).join(', ') || '–'}</td>
-            <td>${esc(VARROA_STUFEN[d.varroa_befall] || '–')}</td>
-            <td style="max-width:220px;white-space:normal">${esc(d.massnahmen) || '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openDurchsichtForm(${d.id}, ${volk.id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntry('durchsichten', ${d.id}, ${volk.id}, 'durchsichten')">Löschen</button>
-            </td>
-        </tr>`).join('')}</tbody>
-    </table></div>` : `<div class="empty-state"><div class="emoji">📋</div>Noch keine Durchsichten für dieses Volk.</div>`}
-    `;
-}
-
-function ratingButtons(name, value) {
-    let html = `<div class="rating-row" data-field="${name}">`;
-    for (let i = 1; i <= 5; i++) {
-        html += `<button type="button" class="${+value === i ? 'active' : ''}" data-val="${i}">${i}</button>`;
+      const data = await api('auth/login', {
+        username: fd.get('username'),
+        password: fd.get('password')
+      });
+      session.user = data.user;
+      session.csrf = data.csrf;
+      setLocale(data.user.locale || getLocale());
+      await startApp();
+    } catch (e) {
+      showError(e);
     }
-    html += `<input type="hidden" name="${name}" value="${value || ''}"></div>`;
-    return html;
-}
-function wireRatingRows(form) {
-    form.querySelectorAll('.rating-row').forEach(row => {
-        const hidden = row.querySelector('input[type=hidden]');
-        row.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                row.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                hidden.value = btn.dataset.val;
-            });
-        });
-    });
+  });
+
+  bindLangSwitch(() => renderLogin());
 }
 
-async function openDurchsichtForm(id, volkId) {
-    const d = id ? await api('durchsichten', 'get', { params: { id } }) : {
-        datum: todayISO(), weiselrichtig: 'ja', varroa_befall: 'unbekannt',
+function langButtons() {
+  return Object.entries(LOCALES).map(([code, label]) =>
+    `<button type="button" data-lang="${code}" class="${code === getLocale() ? 'is-active' : ''}">${esc(label)}</button>`
+  ).join('');
+}
+
+function bindLangSwitch(after) {
+  $$('[data-lang]').forEach(b => b.addEventListener('click', async () => {
+    setLocale(b.dataset.lang);
+    if (session.user) {
+      session.user.locale = getLocale();
+      try {
+        await api('profile/save', { record: { locale: getLocale(), full_name: session.user.full_name, email: session.user.email } });
+      } catch (e) { /* language still switches locally */ }
+    }
+    after();
+  }));
+}
+
+/* -------------------------------------------------------------- app shell */
+
+async function startApp() {
+  document.body.className = '';
+  document.body.innerHTML = `
+    <div class="app" id="app">
+      <aside class="sidebar">
+        <div class="sidebar__brand">
+          <span class="brand__mark"></span>
+          <div><h1>${esc(t('app.title'))}</h1><small>${esc(t('app.subtitle'))}</small></div>
+        </div>
+        <nav class="nav" id="nav"></nav>
+        <div class="sidebar__foot">
+          <div>${esc(session.user.full_name || session.user.username)} · ${esc(optLabel('role', session.user.role))}</div>
+          <div class="lang-switch" style="margin:.5rem 0">${langButtons()}</div>
+          <button class="btn btn--sm" id="logout">${esc(t('common.logout'))}</button>
+        </div>
+      </aside>
+      <main class="main">
+        <button class="btn menu-toggle" id="menu-toggle" aria-controls="nav">☰ ${esc(t('common.menu'))}</button>
+        <div id="view"></div>
+      </main>
+    </div>
+    <div class="toast-host" id="toasts"></div>
+    <dialog id="dialog"></dialog>`;
+
+  renderNav();
+  bindLangSwitch(() => { renderNav(); route(); });
+  $('#menu-toggle').addEventListener('click', () => $('#app').classList.toggle('is-open'));
+  $('#nav').addEventListener('click', () => $('#app').classList.remove('is-open'));
+  $('#logout').addEventListener('click', async () => {
+    try { await api('auth/logout'); } catch (e) { /* ignore */ }
+    session.user = null; session.csrf = null;
+    renderLogin();
+  });
+
+  await refreshLookups();
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+function renderNav() {
+  const items = [
+    ['journal', null],
+    ['#/dashboard', 'nav.dashboard'],
+    ['#/apiaries', 'nav.apiaries'],
+    ['#/colonies', 'nav.colonies'],
+    ['#/records/inspections', 'nav.inspections'],
+    ['#/records/feedings', 'nav.feedings'],
+    ['#/records/treatments', 'nav.treatments'],
+    ['#/records/harvests', 'nav.harvests'],
+    ['#/records/events', 'nav.events'],
+    ['#/tasks', 'nav.tasks'],
+    ['#/reports', 'nav.reports'],
+    ['manage', null],
+    ['#/profile', 'nav.profile']
+  ];
+  if (isAdmin()) {
+    items.push(['#/users', 'nav.users'], ['#/backup', 'nav.backup'], ['#/log', 'nav.log']);
+  }
+  const current = location.hash || '#/dashboard';
+  $('#nav').innerHTML = items.map(([href, key]) => {
+    if (key === null) return `<div class="nav__section">${esc(t('nav.' + href))}</div>`;
+    const active = current === href || (href !== '#/dashboard' && current.startsWith(href)) ? ' class="is-active"' : '';
+    return `<a href="${href}"${active}>${esc(t(key))}</a>`;
+  }).join('');
+}
+
+async function refreshLookups() {
+  const [apiaries, colonies, users] = await Promise.all([
+    api('apiaries/list'),
+    api('colonies/list', { limit: 2000 }),
+    api('users/list')
+  ]);
+  state.apiaries = apiaries;
+  state.colonies = colonies;
+  state.users = users;
+}
+
+function colonyById(id) { return state.colonies.find(c => Number(c.id) === Number(id)); }
+function apiaryById(id) { return state.apiaries.find(a => Number(a.id) === Number(id)); }
+
+/* ----------------------------------------------------------------- router */
+
+const ROUTES = [
+  [/^#\/dashboard$/, viewDashboard],
+  [/^#\/apiaries$/, viewApiaries],
+  [/^#\/colonies$/, viewColonies],
+  [/^#\/colony\/(\d+)$/, viewColony],
+  [/^#\/records\/(\w+)$/, viewRecords],
+  [/^#\/tasks$/, viewTasks],
+  [/^#\/reports$/, viewReports],
+  [/^#\/users$/, viewUsers],
+  [/^#\/backup$/, viewBackup],
+  [/^#\/log$/, viewLog],
+  [/^#\/profile$/, viewProfile]
+];
+
+async function route() {
+  const hash = location.hash || '#/dashboard';
+  state.route = hash;
+  renderNav();
+  $('#view').innerHTML = `<p class="muted">${esc(t('common.loading'))}</p>`;
+  for (const [re, fn] of ROUTES) {
+    const m = hash.match(re);
+    if (m) {
+      try {
+        await fn(...m.slice(1));
+      } catch (e) {
+        showError(e);
+        $('#view').innerHTML = `<div class="alert alert--bad">${esc(t(e.message || 'err.server_error'))}</div>`;
+      }
+      return;
+    }
+  }
+  location.hash = '#/dashboard';
+}
+
+function topbar(title, actionsHtml = '') {
+  return `<div class="topbar"><h1>${esc(title)}</h1><div class="topbar__spacer"></div>${actionsHtml}</div>`;
+}
+
+/* -------------------------------------------------------------- dashboard */
+
+async function viewDashboard() {
+  const [stats, recent, tasks] = await Promise.all([
+    api('stats/summary'),
+    api('stats/recent'),
+    api('tasks/list', { status: 'open', limit: 8 })
+  ]);
+
+  const stat = (value, label, warn = false) =>
+    `<div class="stat${warn ? ' stat--warn' : ''}"><div class="stat__value">${esc(value)}</div><div class="stat__label">${esc(label)}</div></div>`;
+
+  $('#view').innerHTML =
+    topbar(t('dashboard.hello', { name: session.user.full_name || session.user.username }),
+      canWrite() ? `<button class="btn btn--primary" data-new="inspections">${esc(t('inspections.new'))}</button>` : '') +
+    `<div class="grid grid--stats">
+       ${stat(stats.colonies_active, t('dashboard.active_colonies'))}
+       ${stat(stats.apiaries, t('dashboard.apiaries'))}
+       ${stat(stats.inspections_year, t('dashboard.inspections_year', { year: stats.year }))}
+       ${stat(stats.harvest_year_kg, t('dashboard.harvest_year', { year: stats.year }))}
+       ${stat(stats.feed_year, t('dashboard.feed_year', { year: stats.year }))}
+       ${stat(stats.tasks_open, t('dashboard.tasks_open'))}
+       ${stats.tasks_overdue ? stat(stats.tasks_overdue, t('dashboard.tasks_overdue'), true) : ''}
+     </div>
+
+     <div class="card" style="margin-top:1rem">
+       <h2>${esc(t('dashboard.open_tasks'))}</h2>
+       ${tasks.length ? `<ul class="timeline">${tasks.map(taskLine).join('')}</ul>`
+                      : `<p class="muted">${esc(t('common.no_records'))}</p>`}
+     </div>
+
+     <div class="card">
+       <h2>${esc(t('dashboard.recent'))}</h2>
+       ${recent.length ? `<ul class="timeline">${recent.map(recentLine).join('')}</ul>`
+                       : `<p class="muted">${esc(t('common.no_records'))}</p>`}
+     </div>`;
+
+  bindNewButtons();
+}
+
+function taskLine(task) {
+  const overdue = task.due_date && task.status === 'open' && task.due_date < todayLocal();
+  return `<li>
+    <time>${esc(task.due_date ? fmtDate(task.due_date) : '—')}</time>
+    <span class="what"><b>${esc(task.title)}</b>
+      ${task.colony_name ? ` · ${esc(task.colony_name)}` : ''}
+      ${overdue ? ` <span class="pill pill--dead">${esc(t('tasks.overdue'))}</span>` : ''}
+    </span></li>`;
+}
+
+function recentLine(row) {
+  return `<li>
+    <time>${esc(fmtDate(row.record_date))}</time>
+    <span class="what">
+      <span class="pill pill--type">${esc(t('type.' + row.record_type))}</span>
+      ${row.colony_name ? ` <b>${esc(row.colony_name)}</b>` : ''}
+      ${row.summary ? ` · ${esc(row.summary)}` : ''}
+    </span></li>`;
+}
+
+/* --------------------------------------------------------------- apiaries */
+
+async function viewApiaries() {
+  const rows = await api('apiaries/list');
+  state.apiaries = rows;
+
+  $('#view').innerHTML =
+    topbar(t('apiaries.title'),
+      canWrite() ? `<button class="btn btn--primary" data-new="apiaries">${esc(t('apiaries.new'))}</button>` : '') +
+    (rows.length ? `<div class="grid grid--cards">${rows.map(apiaryCard).join('')}</div>`
+                 : emptyState(t('apiaries.title'), t('apiaries.empty')));
+
+  bindNewButtons();
+  $$('[data-edit-apiary]').forEach(b => b.addEventListener('click', async () => {
+    const row = rows.find(r => String(r.id) === b.dataset.editApiary);
+    await openForm('apiaries', row);
+  }));
+  $$('[data-del-apiary]').forEach(b => b.addEventListener('click', () => remove('apiaries', b.dataset.delApiary)));
+}
+
+function apiaryCard(a) {
+  return `<div class="card">
+    <h3>${esc(a.name)} ${a.code ? `<span class="colony__tag">${esc(a.code)}</span>` : ''}</h3>
+    <div class="muted">${esc(a.address || '')}</div>
+    <div class="colony__meta">
+      <span>${esc(t('apiaries.colonies_here', { n: a.colony_count }))}</span>
+      ${a.latitude !== null && a.longitude !== null
+        ? `<span class="mono">${Number(a.latitude).toFixed(4)}, ${Number(a.longitude).toFixed(4)}</span>`
+        : `<span class="pill pill--dead">${esc(t('apiaries.no_coords'))}</span>`}
+      ${a.altitude ? `<span>${esc(a.altitude)} m</span>` : ''}
+    </div>
+    ${a.forage_notes ? `<p class="muted">${esc(a.forage_notes)}</p>` : ''}
+    ${canWrite() ? `<div class="row-actions" style="margin-top:.6rem">
+        <button class="btn btn--sm" data-edit-apiary="${a.id}">${esc(t('common.edit'))}</button>
+        <button class="btn btn--sm btn--danger" data-del-apiary="${a.id}">${esc(t('common.delete'))}</button>
+      </div>` : ''}
+  </div>`;
+}
+
+/* --------------------------------------------------------------- colonies */
+
+async function viewColonies() {
+  const filters = state.colonyFilter || { apiary_id: '', status: 'active' };
+  const rows = await api('colonies/list', { ...filters, limit: 2000 });
+  state.colonies = await api('colonies/list', { limit: 2000 });
+
+  $('#view').innerHTML =
+    topbar(t('colonies.title'),
+      canWrite() ? `<button class="btn btn--primary" data-new="colonies">${esc(t('colonies.new'))}</button>` : '') +
+    `<div class="filters">
+       <label>${esc(t('colonies.filter_apiary'))}
+         <select id="f-apiary">${optionList(state.apiaries.map(a => [a.id, a.name]), filters.apiary_id, t('common.all'))}</select>
+       </label>
+       <label>${esc(t('colonies.filter_status'))}
+         <select id="f-status">${optionList(OPTS.colony_status.map(s => [s, optLabel('colony_status', s)]), filters.status, t('common.all'))}</select>
+       </label>
+     </div>` +
+    (rows.length ? `<div class="grid grid--cards">${rows.map(colonyCard).join('')}</div>`
+                 : emptyState(t('colonies.title'), t('colonies.empty')));
+
+  bindNewButtons();
+  $('#f-apiary').addEventListener('change', e => {
+    state.colonyFilter = { ...filters, apiary_id: e.target.value };
+    viewColonies();
+  });
+  $('#f-status').addEventListener('change', e => {
+    state.colonyFilter = { ...filters, status: e.target.value };
+    viewColonies();
+  });
+  $$('[data-colony]').forEach(card => card.addEventListener('click', () => {
+    location.hash = `#/colony/${card.dataset.colony}`;
+  }));
+}
+
+function colonyCard(c) {
+  const color = c.queen_color && c.queen_color !== 'unmarked' ? c.queen_color : queenColorForYear(c.queen_year);
+  return `<article class="colony ${color ? 'colony--' + color : ''}" data-colony="${c.id}" tabindex="0">
+    <div class="colony__head">
+      <div style="flex:1">
+        <div class="colony__name">${esc(c.name)}</div>
+        <div class="muted">${esc(c.apiary_name || '')}</div>
+      </div>
+      ${c.tag_number ? `<span class="colony__tag">${esc(c.tag_number)}</span>` : ''}
+    </div>
+    <div class="colony__meta">
+      <span class="pill pill--${esc(c.status)}">${esc(optLabel('colony_status', c.status))}</span>
+      ${c.race ? `<span>${esc(optLabel('race', c.race))}</span>` : ''}
+      ${c.queen_year ? `<span><span class="queen-dot queen-dot--${esc(color || 'white')}"></span> ${esc(t('colonies.queen'))} ${esc(c.queen_year)}</span>` : ''}
+      <span>${esc(t('colonies.last_inspection'))}: ${c.last_inspection ? esc(fmtDate(c.last_inspection)) : esc(t('colonies.never'))}</span>
+    </div>
+  </article>`;
+}
+
+async function viewColony(id) {
+  const [colony] = await api('colonies/list', { id });
+  if (!colony) { location.hash = '#/colonies'; return; }
+  const tab = state.colonyTab || 'inspections';
+
+  const color = colony.queen_color && colony.queen_color !== 'unmarked'
+    ? colony.queen_color : queenColorForYear(colony.queen_year);
+
+  $('#view').innerHTML =
+    `<div class="topbar">
+       <a class="btn btn--ghost btn--sm" href="#/colonies">← ${esc(t('common.back'))}</a>
+       <h1>${esc(colony.name)}</h1>
+       ${colony.tag_number ? `<span class="colony__tag">${esc(colony.tag_number)}</span>` : ''}
+       <div class="topbar__spacer"></div>
+       ${canWrite() ? `<button class="btn" id="edit-colony">${esc(t('common.edit'))}</button>` : ''}
+     </div>
+     <div class="card">
+       <div class="colony__meta" style="font-size:.9rem">
+         <span class="pill pill--${esc(colony.status)}">${esc(optLabel('colony_status', colony.status))}</span>
+         <span><b>${esc(t('field.apiary_id'))}:</b> ${esc(colony.apiary_name || '')}</span>
+         ${colony.race ? `<span><b>${esc(t('field.race'))}:</b> ${esc(optLabel('race', colony.race))}</span>` : ''}
+         ${colony.origin ? `<span><b>${esc(t('field.origin'))}:</b> ${esc(optLabel('origin', colony.origin))}</span>` : ''}
+         ${colony.hive_type ? `<span><b>${esc(t('field.hive_type'))}:</b> ${esc(optLabel('hive_type', colony.hive_type))}</span>` : ''}
+         ${colony.frame_size ? `<span><b>${esc(t('field.frame_size'))}:</b> ${esc(optLabel('frame_size', colony.frame_size))}</span>` : ''}
+         ${colony.box_count ? `<span><b>${esc(t('field.box_count'))}:</b> ${esc(colony.box_count)}</span>` : ''}
+         ${colony.established_on ? `<span><b>${esc(t('field.established_on'))}:</b> ${esc(fmtDate(colony.established_on))}</span>` : ''}
+         <span><b>${esc(t('colonies.queen'))}:</b> ${colony.queen_id
+            ? `<span class="queen-dot queen-dot--${esc(color || 'white')}"></span> ${esc(colony.queen_year || '')} ${esc(optLabel('race', colony.queen_race) || '')}`
+            : esc(t('colonies.no_queen'))}</span>
+       </div>
+       ${colony.notes ? `<p style="margin-bottom:0">${esc(colony.notes)}</p>` : ''}
+     </div>
+
+     <div class="tabs" id="colony-tabs">
+       ${['inspections', 'feedings', 'treatments', 'harvests', 'events', 'queens', 'tasks']
+         .map(k => `<button data-tab="${k}" class="${k === tab ? 'is-active' : ''}">${esc(tabLabel(k))}</button>`).join('')}
+     </div>
+     <div id="colony-tab-body"></div>`;
+
+  $('#edit-colony')?.addEventListener('click', async () => {
+    if (await openForm('colonies', colony)) viewColony(id);
+  });
+  $$('#colony-tabs button').forEach(b => b.addEventListener('click', () => {
+    state.colonyTab = b.dataset.tab;
+    viewColony(id);
+  }));
+
+  await renderColonyTab(tab, Number(id));
+}
+
+async function renderColonyTab(entity, colonyId) {
+  const rows = await api(`${entity}/list`, { colony_id: colonyId, limit: 500 });
+  const host = $('#colony-tab-body');
+  host.innerHTML =
+    `<div class="topbar">
+       <div class="topbar__spacer"></div>
+       ${canWrite() ? `<button class="btn btn--primary btn--sm" data-new="${entity}" data-colony-id="${colonyId}">${esc(t(entity + '.new'))}</button>` : ''}
+     </div>` +
+    recordTable(entity, rows);
+  bindNewButtons(() => renderColonyTab(entity, colonyId));
+  bindRowActions(entity, rows, () => renderColonyTab(entity, colonyId));
+}
+
+function tabLabel(key) {
+  return key === 'queens' ? t('queens.title') : t('nav.' + key);
+}
+
+/* ---------------------------------------------------------- record tables */
+
+function recordTable(entity, rows) {
+  const cols = COLUMNS[entity] || [];
+  if (!rows.length) return `<div class="card"><p class="muted">${esc(t('common.no_records'))}</p></div>`;
+
+  const head = cols.map(c => `<th class="${c.kind === 'num' ? 'num' : ''}">${esc(t(c.label || ('field.' + c.n)))}</th>`).join('');
+  const body = rows.map(r => `<tr data-id="${r.id}">
+      ${cols.map(c => `<td class="${cellClass(c)}">${cellValue(r, c)}</td>`).join('')}
+      <td><div class="row-actions">
+        ${canWrite() ? `<button class="btn btn--sm" data-edit="${r.id}">${esc(t('common.edit'))}</button>
+                        <button class="btn btn--sm btn--danger" data-del="${r.id}">${esc(t('common.delete'))}</button>` : ''}
+      </div></td>
+    </tr>`).join('');
+
+  return `<div class="card"><div class="table-wrap"><table class="data">
+      <thead><tr>${head}<th></th></tr></thead><tbody>${body}</tbody>
+    </table></div></div>`;
+}
+
+function cellClass(c) {
+  if (c.kind === 'num') return 'num';
+  if (c.kind === 'date' || c.kind === 'datetime') return 'date';
+  return '';
+}
+
+function cellValue(row, c) {
+  const v = row[c.n];
+  switch (c.kind) {
+    case 'date': return esc(fmtDate(v));
+    case 'datetime': return esc(fmtDateTime(v));
+    case 'bool': return v === null || v === undefined || v === '' ? '' : (Number(v) ? esc(t('common.yes')) : esc(t('common.no')));
+    case 'opt': return esc(optLabel(c.opts, v));
+    case 'num': return v === null || v === undefined || v === '' ? '' : esc(String(v).replace(/\.00$/, '') + (c.suffix || ''));
+    default: {
+      const s = String(v ?? '');
+      return esc(s.length > 90 ? s.slice(0, 90) + '…' : s);
+    }
+  }
+}
+
+function bindRowActions(entity, rows, refresh) {
+  $$('[data-edit]').forEach(b => b.addEventListener('click', async () => {
+    const row = rows.find(r => String(r.id) === b.dataset.edit);
+    if (await openForm(entity, row)) refresh();
+  }));
+  $$('[data-del]').forEach(b => b.addEventListener('click', async () => {
+    if (await remove(entity, b.dataset.del)) refresh();
+  }));
+}
+
+function bindNewButtons(refresh) {
+  $$('[data-new]').forEach(b => b.addEventListener('click', async () => {
+    const entity = b.dataset.new;
+    const preset = b.dataset.colonyId ? { colony_id: Number(b.dataset.colonyId) } : {};
+    if (await openForm(entity, preset)) {
+      if (refresh) refresh(); else route();
+    }
+  }));
+}
+
+async function remove(entity, id) {
+  if (!confirm(t('common.confirm_delete'))) return false;
+  try {
+    await api(`${entity}/delete`, { id: Number(id) });
+    toast(t('common.deleted'));
+    if (entity === 'colonies' || entity === 'apiaries') await refreshLookups();
+    return true;
+  } catch (e) {
+    showError(e);
+    return false;
+  }
+}
+
+/* --------------------------------------------------- generic record views */
+
+async function viewRecords(entity) {
+  if (!FORMS[entity]) { location.hash = '#/dashboard'; return; }
+  const f = state.recordFilter?.[entity] || { colony_id: '', date_from: '', date_to: '' };
+  const rows = await api(`${entity}/list`, { ...f, limit: 1000 });
+
+  $('#view').innerHTML =
+    topbar(t(entity + '.title'),
+      canWrite() ? `<button class="btn btn--primary" data-new="${entity}">${esc(t(entity + '.new'))}</button>` : '') +
+    `<div class="filters">
+       <label>${esc(t('common.colony'))}
+         <select id="f-colony">${optionList(state.colonies.map(c => [c.id, c.name]), f.colony_id, t('common.all'))}</select>
+       </label>
+       <label>${esc(t('common.from'))}<input type="date" id="f-from" value="${esc(f.date_from)}"></label>
+       <label>${esc(t('common.to'))}<input type="date" id="f-to" value="${esc(f.date_to)}"></label>
+       <div class="form-actions"><button class="btn" id="f-reset">${esc(t('common.reset'))}</button></div>
+     </div>` +
+    recordTable(entity, rows);
+
+  const setFilter = patch => {
+    state.recordFilter = state.recordFilter || {};
+    state.recordFilter[entity] = { ...f, ...patch };
+    viewRecords(entity);
+  };
+  $('#f-colony').addEventListener('change', e => setFilter({ colony_id: e.target.value }));
+  $('#f-from').addEventListener('change', e => setFilter({ date_from: e.target.value }));
+  $('#f-to').addEventListener('change', e => setFilter({ date_to: e.target.value }));
+  $('#f-reset').addEventListener('click', () => setFilter({ colony_id: '', date_from: '', date_to: '' }));
+
+  bindNewButtons(() => viewRecords(entity));
+  bindRowActions(entity, rows, () => viewRecords(entity));
+}
+
+async function viewTasks() {
+  const f = state.taskFilter || { status: 'open' };
+  const rows = await api('tasks/list', { ...f, limit: 500 });
+
+  $('#view').innerHTML =
+    topbar(t('tasks.title'),
+      canWrite() ? `<button class="btn btn--primary" data-new="tasks">${esc(t('tasks.new'))}</button>` : '') +
+    `<div class="filters">
+       <label>${esc(t('field.status'))}
+         <select id="f-status">${optionList(OPTS.task_status.map(s => [s, optLabel('task_status', s)]), f.status, t('common.all'))}</select>
+       </label>
+     </div>` +
+    recordTable('tasks', rows) +
+    (canWrite() && rows.length ? `<p class="muted">${esc(t('tasks.mark_done'))}: ${esc(t('common.edit'))} → ${esc(t('field.status'))}</p>` : '');
+
+  $('#f-status').addEventListener('change', e => {
+    state.taskFilter = { status: e.target.value };
+    viewTasks();
+  });
+  bindNewButtons(() => viewTasks());
+  bindRowActions('tasks', rows, () => viewTasks());
+}
+
+/* ------------------------------------------------------------------ forms */
+
+function optionList(pairs, selected, emptyLabel) {
+  const head = `<option value="">${esc(emptyLabel ?? t('common.select'))}</option>`;
+  return head + pairs.map(([value, label]) =>
+    `<option value="${esc(value)}"${String(value) === String(selected ?? '') ? ' selected' : ''}>${esc(label)}</option>`
+  ).join('');
+}
+
+function refPairs(ref) {
+  if (ref === 'apiaries') return state.apiaries.map(a => [a.id, a.name]);
+  if (ref === 'colonies') return state.colonies.map(c => [c.id, c.apiary_name ? `${c.name} (${c.apiary_name})` : c.name]);
+  if (ref === 'users') return state.users.map(u => [u.id, u.full_name || u.username]);
+  return [];
+}
+
+function fieldHtml(f, record) {
+  if (f.section) return `<div class="fieldset-title">${esc(t(f.section))}</div>`;
+  if (f.t === 'weather') return weatherBlockHtml(record);
+  if (f.t === 'geo') {
+    return `<div class="full">
+      <label for="geo-q">${esc(t('apiaries.geo_search'))}
+        <span style="display:flex;gap:.4rem">
+          <input id="geo-q" type="search" placeholder="${esc(t('apiaries.geo_hint'))}">
+          <button type="button" class="btn" id="geo-go">${esc(t('common.search'))}</button>
+        </span>
+      </label>
+      <div id="geo-results" class="muted"></div>
+    </div>`;
+  }
+
+  const label = esc(t(f.label || ('field.' + f.n)));
+  const req = f.req ? ' required' : '';
+  const id = 'fld-' + f.n;
+  let value = record?.[f.n];
+  if ((value === undefined || value === null || value === '') && record?.id === undefined && f.def !== undefined) {
+    value = f.def;
+  }
+  const wrap = inner => `<label class="${f.full ? 'full' : ''}" for="${id}">${label}${f.req ? ' *' : ''}${inner}
+      ${f.hint ? `<span class="muted">${esc(t(f.hint))}</span>` : ''}</label>`;
+
+  switch (f.t) {
+    case 'textarea':
+      return wrap(`<textarea id="${id}" name="${f.n}"${req}>${esc(value ?? '')}</textarea>`);
+    case 'number':
+      return wrap(`<input id="${id}" name="${f.n}" type="number" inputmode="decimal"
+        ${f.step ? `step="${f.step}"` : ''} ${f.min !== undefined ? `min="${f.min}"` : ''}
+        ${f.max !== undefined ? `max="${f.max}"` : ''} value="${esc(value ?? '')}"${req}>`);
+    case 'date':
+      return wrap(`<input id="${id}" name="${f.n}" type="date" value="${esc(toInputValue(value, 'date') || (f.today && record?.id === undefined ? todayLocal() : ''))}"${req}>`);
+    case 'datetime':
+      return wrap(`<input id="${id}" name="${f.n}" type="datetime-local" value="${esc(toInputValue(value, 'datetime') || (f.now && record?.id === undefined ? nowLocal() : ''))}"${req}>`);
+    case 'password':
+      return wrap(`<input id="${id}" name="${f.n}" type="password" autocomplete="new-password" value="">`);
+    case 'check':
+      return `<label class="check ${f.full ? 'full' : ''}"><input id="${id}" name="${f.n}" type="checkbox"${Number(value) ? ' checked' : ''}> ${label}</label>`;
+    case 'select': {
+      const pairs = f.opts === 'locale_opts'
+        ? Object.entries(LOCALES)
+        : (OPTS[f.opts] || []).map(o => [o, optLabel(f.opts, o)]);
+      return wrap(`<select id="${id}" name="${f.n}"${req}>${optionList(pairs, value, t('common.select'))}</select>`);
+    }
+    case 'ref':
+      return wrap(`<select id="${id}" name="${f.n}"${req}>${optionList(refPairs(f.ref), value, t('common.select'))}</select>`);
+    default:
+      return wrap(`<input id="${id}" name="${f.n}" type="text" value="${esc(value ?? '')}"${req}>`);
+  }
+}
+
+function weatherBlockHtml(record) {
+  return `<div class="weather" id="weather-block">
+    <div class="weather__head">
+      <span>${esc(t('weather.title'))}</span>
+      ${session.weatherEnabled ? `<button type="button" class="btn btn--sm" id="weather-fetch">${esc(t('weather.fetch'))}</button>` : ''}
+    </div>
+    <div class="weather__values" id="weather-values">${weatherValuesHtml(record)}</div>
+  </div>`;
+}
+
+function weatherValuesHtml(w) {
+  if (!w || w.weather_temp === null || w.weather_temp === undefined || w.weather_temp === '') {
+    return `<span class="muted">${esc(session.weatherEnabled ? t('weather.auto') : t('err.weather_unavailable'))}</span>`;
+  }
+  const parts = [
+    `<span>${esc(t('weather.temp'))}: <b>${esc(w.weather_temp)} °C</b></span>`,
+    w.weather_humidity != null ? `<span>${esc(t('weather.humidity'))}: <b>${esc(w.weather_humidity)} %</b></span>` : '',
+    w.weather_wind != null ? `<span>${esc(t('weather.wind'))}: <b>${esc(w.weather_wind)} km/h</b></span>` : '',
+    w.weather_cloud != null ? `<span>${esc(t('weather.cloud'))}: <b>${esc(w.weather_cloud)} %</b></span>` : '',
+    w.weather_precip != null ? `<span>${esc(t('weather.precip'))}: <b>${esc(w.weather_precip)} mm</b></span>` : '',
+    w.weather_pressure != null ? `<span>${esc(t('weather.pressure'))}: <b>${esc(w.weather_pressure)} hPa</b></span>` : '',
+    w.weather_code != null ? `<span>${esc(weatherText(Number(w.weather_code)))}</span>` : ''
+  ];
+  return parts.filter(Boolean).join('');
+}
+
+/**
+ * Opens a modal form for one record. Resolves to true when something was
+ * saved, false when the dialog was dismissed.
+ */
+function openForm(entity, record) {
+  return new Promise(resolve => {
+    const fields = FORMS[entity];
+    const isNew = !record || record.id === undefined;
+    const dlg = $('#dialog');
+    const weather = {
+      weather_temp: record?.weather_temp ?? null,
+      weather_humidity: record?.weather_humidity ?? null,
+      weather_wind: record?.weather_wind ?? null,
+      weather_wind_dir: record?.weather_wind_dir ?? null,
+      weather_cloud: record?.weather_cloud ?? null,
+      weather_precip: record?.weather_precip ?? null,
+      weather_pressure: record?.weather_pressure ?? null,
+      weather_code: record?.weather_code ?? null,
+      weather_source: record?.weather_source ?? null
     };
-    openModal(id ? 'Durchsicht bearbeiten' : 'Neue Durchsicht', `
-    <form id="durchsichtForm">
-        <input type="hidden" name="volk_id" value="${volkId}">
-        <div class="form-grid">
-            <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${esc(d.datum)}" required id="dsDatum"></div>
-            <div class="form-row"><label>Uhrzeit <span class="opt">(optional)</span></label><input type="time" name="uhrzeit" value="${esc(d.uhrzeit)}"></div>
-        </div>
 
-        <div id="weatherBox" class="weather-box">
-            <span class="icon">🌤️</span>
-            <span id="weatherText">Wetter wird für Datum &amp; Standort geladen…</span>
-            <button type="button" class="btn small secondary refresh" id="weatherRefresh">Aktualisieren</button>
+    dlg.innerHTML = `
+      <form method="dialog" id="record-form">
+        <div class="dialog__head">
+          <h2>${esc(isNew ? t(entity + '.new') : t('common.edit'))}</h2>
         </div>
-        <input type="hidden" name="wetter_temp_c" id="wTemp" value="${esc(d.wetter_temp_c)}">
-        <input type="hidden" name="wetter_wind_kmh" id="wWind" value="${esc(d.wetter_wind_kmh)}">
-        <input type="hidden" name="wetter_beschreibung" id="wDesc" value="${esc(d.wetter_beschreibung)}">
-        <input type="hidden" name="wetter_code" id="wCode" value="${esc(d.wetter_code)}">
+        <div class="dialog__body">
+          <div class="form-grid">
+            ${fields.map(f => fieldHtml(f, record)).join('')}
+            <div class="form-actions">
+              <button type="button" class="btn" id="form-cancel">${esc(t('common.cancel'))}</button>
+              <button type="submit" class="btn btn--primary">${esc(t('common.save'))}</button>
+            </div>
+          </div>
+        </div>
+      </form>`;
 
-        <h3 style="margin:16px 0 10px">Brut &amp; Volksstärke</h3>
-        <div class="form-grid cols-3">
-            <div class="checkbox-row form-row"><input type="checkbox" id="stifte" name="stifte_vorhanden" ${d.stifte_vorhanden ? 'checked' : ''}><label for="stifte">Stifte vorhanden</label></div>
-            <div class="checkbox-row form-row"><input type="checkbox" id="offbrut" name="offene_brut" ${d.offene_brut ? 'checked' : ''}><label for="offbrut">Offene Brut</label></div>
-            <div class="checkbox-row form-row"><input type="checkbox" id="vedbrut" name="verdeckelte_brut" ${d.verdeckelte_brut ? 'checked' : ''}><label for="vedbrut">Verdeckelte Brut</label></div>
-        </div>
-        <div class="form-grid cols-3">
-            <div class="form-row"><label>Brutwaben (Anzahl)</label><input type="number" step="0.5" min="0" name="brutwaben_anzahl" value="${esc(d.brutwaben_anzahl)}"></div>
-            <div class="form-row"><label>Futterwaben (Anzahl)</label><input type="number" step="0.5" min="0" name="futterwaben_anzahl" value="${esc(d.futterwaben_anzahl)}"></div>
-            <div class="form-row"><label>Volksstärke (besetzte Waben)</label><input type="number" step="0.5" min="0" name="volksstaerke_waben" value="${esc(d.volksstaerke_waben)}"></div>
-        </div>
-        <div class="form-grid cols-3">
-            <div class="checkbox-row form-row"><input type="checkbox" id="kgesehen" name="koenigin_gesehen" ${d.koenigin_gesehen ? 'checked' : ''}><label for="kgesehen">Königin gesehen</label></div>
-            <div class="form-row"><label>Weiselrichtig</label><select name="weiselrichtig">${optsMap(WEISELRICHTIG, d.weiselrichtig)}</select></div>
-            <div class="checkbox-row form-row"><input type="checkbox" id="honigraum" name="honigraum_vorhanden" ${d.honigraum_vorhanden ? 'checked' : ''}><label for="honigraum">Honigraum aufgesetzt</label></div>
-        </div>
-        <div class="form-grid">
-            <div class="checkbox-row form-row"><input type="checkbox" id="schwarmz" name="schwarmzellen" ${d.schwarmzellen ? 'checked' : ''}><label for="schwarmz">Schwarmzellen gefunden</label></div>
-            <div class="checkbox-row form-row"><input type="checkbox" id="spieln" name="spielnaepfchen" ${d.spielnaepfchen ? 'checked' : ''}><label for="spieln">Spielnäpfchen gefunden</label></div>
-        </div>
+    const form = $('#record-form', dlg);
 
-        <h3 style="margin:16px 0 10px">Gesundheit &amp; Verhalten</h3>
-        <div class="form-grid">
-            <div class="form-row"><label>Varroa-Befall</label><select name="varroa_befall">${optsMap(VARROA_STUFEN, d.varroa_befall)}</select></div>
-            <div class="form-row"><label>Varroa Gemülldiagnose <span class="opt">(Anzahl Milben)</span></label><input type="number" min="0" name="varroa_anzahl_gemuell" value="${esc(d.varroa_anzahl_gemuell)}"></div>
-        </div>
-        <div class="form-row"><label>Krankheitsanzeichen <span class="opt">(z.B. Kalkbrut, Sackbrut, Kotspuren...)</span></label>
-            <input type="text" name="krankheitsanzeichen" value="${esc(d.krankheitsanzeichen)}"></div>
-        <div class="form-grid cols-3">
-            <div class="form-row"><label>Sanftmut (1=aggressiv, 5=sehr sanft)</label>${ratingButtons('sanftmut', d.sanftmut)}</div>
-            <div class="form-row"><label>Wabensitz (1=unruhig, 5=ruhig)</label>${ratingButtons('wabensitz', d.wabensitz)}</div>
-            <div class="form-row"><label>Stechlust (1=hoch, 5=keine)</label>${ratingButtons('stechlust', d.stechlust)}</div>
-        </div>
+    // --- weather wiring ---------------------------------------------------
+    const dateInput = $('[name="inspected_at"]', form);
+    const colonyInput = $('[name="colony_id"]', form);
+    const values = $('#weather-values', form);
 
-        <div class="form-row"><label>Durchgeführte Maßnahmen</label><textarea name="massnahmen" placeholder="z.B. Baurahmen entnommen, Zarge erweitert...">${esc(d.massnahmen)}</textarea></div>
-        <div class="form-row"><label>Notizen</label><textarea name="notizen">${esc(d.notizen)}</textarea></div>
-
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-
-    const form = document.getElementById('durchsichtForm');
-    wireRatingRows(form);
-
-    async function refreshWeather() {
-        const box = document.getElementById('weatherBox');
-        const text = document.getElementById('weatherText');
-        const datum = document.getElementById('dsDatum').value;
-        if (!datum) return;
-        box.className = 'weather-box loading';
-        text.textContent = 'Lade Wetterdaten…';
-        try {
-            const w = await api('durchsichten', 'wetter_vorschau', { params: { volk_id: volkId, datum } });
-            box.className = 'weather-box';
-            text.textContent = `${w.temp_c}°C, ${w.beschreibung}, Wind ${w.wind_kmh ?? '–'} km/h`;
-            document.getElementById('wTemp').value = w.temp_c ?? '';
-            document.getElementById('wWind').value = w.wind_kmh ?? '';
-            document.getElementById('wDesc').value = w.beschreibung ?? '';
-            document.getElementById('wCode').value = w.code ?? '';
-        } catch (err) {
-            box.className = 'weather-box error';
-            text.textContent = '⚠️ ' + err.message;
-        }
-    }
-    document.getElementById('weatherRefresh').addEventListener('click', refreshWeather);
-    document.getElementById('dsDatum').addEventListener('change', refreshWeather);
-    if (!id) refreshWeather();
-    else {
-        const box = document.getElementById('weatherBox');
-        const text = document.getElementById('weatherText');
-        if (d.wetter_temp_c !== null && d.wetter_temp_c !== undefined) {
-            text.textContent = `${d.wetter_temp_c}°C, ${d.wetter_beschreibung || ''}, Wind ${d.wetter_wind_kmh ?? '–'} km/h (gespeichert)`;
-        } else { refreshWeather(); }
+    async function fetchWeather(silent) {
+      if (!session.weatherEnabled || !values) return;
+      const colonyId = colonyInput?.value;
+      const at = dateInput?.value;
+      if (!colonyId || !at) return;
+      values.innerHTML = `<span class="muted">${esc(t('weather.pending'))}</span>`;
+      try {
+        const w = await api('weather/get', { colony_id: Number(colonyId), at });
+        weather.weather_temp = w.temp;
+        weather.weather_humidity = w.humidity;
+        weather.weather_wind = w.wind;
+        weather.weather_wind_dir = w.wind_dir;
+        weather.weather_cloud = w.cloud;
+        weather.weather_precip = w.precip;
+        weather.weather_pressure = w.pressure;
+        weather.weather_code = w.code;
+        weather.weather_source = w.source;
+        values.innerHTML = weatherValuesHtml(weather) +
+          `<span class="muted">${esc(w.source === 'archive' ? t('weather.source_archive') : t('weather.source_forecast'))}</span>`;
+      } catch (e) {
+        values.innerHTML = `<span class="muted">${esc(t(e.message))}</span>`;
+        if (!silent) showError(e);
+      }
     }
 
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(form);
-        const body = {};
-        for (const [k, v] of fd.entries()) body[k] = v;
-        ['stifte_vorhanden','offene_brut','verdeckelte_brut','koenigin_gesehen','honigraum_vorhanden','schwarmzellen','spielnaepfchen']
-            .forEach(k => body[k] = form.querySelector(`[name=${k}]`).checked);
+    if (values) {
+      $('#weather-fetch', form)?.addEventListener('click', () => fetchWeather(false));
+      colonyInput?.addEventListener('change', () => fetchWeather(true));
+      dateInput?.addEventListener('change', () => fetchWeather(true));
+      if (isNew) setTimeout(() => fetchWeather(true), 150);
+    }
+
+    // --- place search (apiaries) -----------------------------------------
+    const geoGo = $('#geo-go', form);
+    if (geoGo) {
+      const runSearch = async () => {
+        const q = $('#geo-q', form).value.trim();
+        if (!q) return;
+        const out = $('#geo-results', form);
+        out.textContent = t('common.loading');
         try {
-            if (id) await api('durchsichten', 'update', { method: 'PUT', params: { id }, body });
-            else await api('durchsichten', 'create', { method: 'POST', body });
-            closeModal();
-            toast('Durchsicht gespeichert.');
-            router();
-        } catch (err) {
-            const el = document.getElementById('formError'); el.textContent = err.message; el.hidden = false;
+          const hits = await api('geo/search', { q });
+          out.innerHTML = hits.length
+            ? hits.map((h, i) => `<button type="button" class="btn btn--sm" data-geo="${i}">${esc(h.name)}${h.admin ? ', ' + esc(h.admin) : ''}</button>`).join(' ')
+            : `<span>${esc(t('common.no_records'))}</span>`;
+          $$('[data-geo]', out).forEach(b => b.addEventListener('click', () => {
+            const h = hits[Number(b.dataset.geo)];
+            form.querySelector('[name="latitude"]').value = h.latitude ?? '';
+            form.querySelector('[name="longitude"]').value = h.longitude ?? '';
+            if (h.altitude != null) form.querySelector('[name="altitude"]').value = Math.round(h.altitude);
+            if (!form.querySelector('[name="address"]').value) {
+              form.querySelector('[name="address"]').value = [h.name, h.admin].filter(Boolean).join(', ');
+            }
+            out.textContent = '';
+          }));
+        } catch (e) {
+          out.textContent = t(e.message);
         }
+      };
+      geoGo.addEventListener('click', runSearch);
+      $('#geo-q', form).addEventListener('keydown', ev => {
+        if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); }
+      });
+    }
+
+    // --- submit -----------------------------------------------------------
+    const close = saved => {
+      dlg.close();
+      dlg.innerHTML = '';
+      resolve(saved);
+    };
+
+    $('#form-cancel', form).addEventListener('click', () => close(false));
+    dlg.addEventListener('cancel', ev => { ev.preventDefault(); close(false); }, { once: true });
+
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const data = { ...(record?.id ? { id: record.id } : {}) };
+      for (const f of fields) {
+        if (!f.n || f.t === 'weather') continue;
+        const input = form.querySelector(`[name="${f.n}"]`);
+        if (!input) continue;
+        data[f.n] = f.t === 'check' ? (input.checked ? 1 : 0) : input.value;
+      }
+      if (entity === 'inspections') Object.assign(data, weather);
+      if (entity === 'colonies' && record?.id === undefined && !data.status) data.status = 'active';
+
+      try {
+        await api(`${entity}/save`, { record: data });
+        toast(t('common.saved'));
+        if (entity === 'colonies' || entity === 'apiaries' || entity === 'users') await refreshLookups();
+        close(true);
+      } catch (e) {
+        showError(e);
+      }
     });
+
+    dlg.showModal();
+  });
 }
 
-/* -------- Fütterungen Tab -------- */
-async function renderFuetterungenTab(container, volk) {
-    const rows = await api('fuetterungen', 'list', { params: { volk_id: volk.id } });
-    container.innerHTML = `
-    <div class="view-header"><h3 style="margin:0">Fütterungen</h3>
-        <button class="btn small" onclick='openFuetterungForm(null, ${volk.id})'>+ Neue Fütterung</button></div>
-    ${rows.length ? `<div class="card table-wrap"><table>
-        <thead><tr><th>Datum</th><th>Futterart</th><th>Menge</th><th>Notizen</th><th></th></tr></thead>
-        <tbody>${rows.map(f => `<tr>
-            <td>${fmtDate(f.datum)}</td><td>${esc(f.futterart)}</td>
-            <td>${f.menge ?? '–'} ${f.menge ? esc(f.einheit) : ''}</td>
-            <td>${esc(f.notizen) || '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openFuetterungForm(${f.id}, ${volk.id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntry('fuetterungen', ${f.id}, ${volk.id}, 'fuetterungen')">Löschen</button>
-            </td>
-        </tr>`).join('')}</tbody>
-    </table></div>` : `<div class="empty-state"><div class="emoji">🍯</div>Noch keine Fütterungen erfasst.</div>`}
-    `;
-}
-async function openFuetterungForm(id, volkId) {
-    const rows = id ? await api('fuetterungen', 'list', { params: { volk_id: volkId } }) : [];
-    const f = id ? rows.find(x => +x.id === id) : { datum: todayISO(), einheit: 'l' };
-    openModal(id ? 'Fütterung bearbeiten' : 'Neue Fütterung', `
-    <form id="fForm">
-        <input type="hidden" name="volk_id" value="${volkId}">
-        <div class="form-grid">
-            <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${esc(f.datum)}" required></div>
-            <div class="form-row"><label>Futterart *</label><select name="futterart" required>${opts(FUTTERARTEN, f.futterart)}</select></div>
-        </div>
-        <div class="form-grid">
-            <div class="form-row"><label>Menge</label><input type="number" step="0.1" min="0" name="menge" value="${esc(f.menge)}"></div>
-            <div class="form-row"><label>Einheit</label><select name="einheit">
-                ${['l','kg','ml','g'].map(u=>`<option value="${u}" ${f.einheit===u?'selected':''}>${u}</option>`).join('')}
-            </select></div>
-        </div>
-        <div class="form-row"><label>Notizen</label><textarea name="notizen">${esc(f.notizen)}</textarea></div>
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-    document.getElementById('fForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const body = Object.fromEntries(new FormData(e.target).entries());
-        try {
-            if (id) await api('fuetterungen', 'update', { method: 'PUT', params: { id }, body });
-            else await api('fuetterungen', 'create', { method: 'POST', body });
-            closeModal(); toast('Fütterung gespeichert.'); router();
-        } catch (err) { const el = document.getElementById('formError'); el.textContent = err.message; el.hidden = false; }
-    });
+/* ---------------------------------------------------------------- reports */
+
+async function viewReports() {
+  const f = state.reportFilter || {
+    types: [...REPORT_TYPES],
+    apiary_id: '', colony_id: '', user_id: '',
+    date_from: `${new Date().getFullYear()}-01-01`,
+    date_to: '', search: ''
+  };
+  state.reportFilter = f;
+
+  $('#view').innerHTML =
+    topbar(t('reports.title'),
+      `<button class="btn" id="rep-print">${esc(t('common.print'))}</button>
+       <button class="btn" id="rep-csv">${esc(t('common.export_csv'))}</button>`) +
+    `<p class="muted">${esc(t('reports.hint'))}</p>
+     <div class="filters">
+       <label>${esc(t('common.apiary'))}
+         <select id="r-apiary">${optionList(state.apiaries.map(a => [a.id, a.name]), f.apiary_id, t('common.all'))}</select>
+       </label>
+       <label>${esc(t('common.colony'))}
+         <select id="r-colony">${optionList(state.colonies.map(c => [c.id, c.name]), f.colony_id, t('common.all'))}</select>
+       </label>
+       <label>${esc(t('common.user'))}
+         <select id="r-user">${optionList(state.users.map(u => [u.id, u.full_name || u.username]), f.user_id, t('common.all'))}</select>
+       </label>
+       <label>${esc(t('common.from'))}<input type="date" id="r-from" value="${esc(f.date_from)}"></label>
+       <label>${esc(t('common.to'))}<input type="date" id="r-to" value="${esc(f.date_to)}"></label>
+       <label>${esc(t('reports.search'))}<input type="search" id="r-search" value="${esc(f.search)}"></label>
+       <div class="full">
+         <div class="muted" style="margin-bottom:.3rem">${esc(t('reports.types'))}</div>
+         <div style="display:flex;flex-wrap:wrap;gap:.8rem">
+           ${REPORT_TYPES.map(ty => `<label class="check"><input type="checkbox" data-type="${ty}"${f.types.includes(ty) ? ' checked' : ''}> ${esc(t('type.' + ty))}</label>`).join('')}
+         </div>
+       </div>
+       <div class="full" style="display:flex;flex-wrap:wrap;gap:.4rem">
+         <button class="btn btn--sm" data-range="this_year">${esc(t('reports.this_year'))}</button>
+         <button class="btn btn--sm" data-range="last_year">${esc(t('reports.last_year'))}</button>
+         <button class="btn btn--sm" data-range="season">${esc(t('reports.season'))}</button>
+         <div style="flex:1"></div>
+         <button class="btn btn--primary" id="r-run">${esc(t('reports.run'))}</button>
+       </div>
+     </div>
+     <div id="report-out"><p class="muted">${esc(t('common.loading'))}</p></div>`;
+
+  const read = () => ({
+    types: $$('[data-type]').filter(c => c.checked).map(c => c.dataset.type),
+    apiary_id: $('#r-apiary').value,
+    colony_id: $('#r-colony').value,
+    user_id: $('#r-user').value,
+    date_from: $('#r-from').value,
+    date_to: $('#r-to').value,
+    search: $('#r-search').value
+  });
+
+  $('#r-run').addEventListener('click', () => { state.reportFilter = read(); runReport(); });
+  $$('[data-range]').forEach(b => b.addEventListener('click', () => {
+    const y = new Date().getFullYear();
+    const ranges = {
+      this_year: [`${y}-01-01`, `${y}-12-31`],
+      last_year: [`${y - 1}-01-01`, `${y - 1}-12-31`],
+      season: [`${y}-03-01`, `${y}-09-30`]
+    };
+    const [from, to] = ranges[b.dataset.range];
+    $('#r-from').value = from;
+    $('#r-to').value = to;
+    state.reportFilter = read();
+    runReport();
+  }));
+  $('#rep-print').addEventListener('click', () => window.print());
+  $('#rep-csv').addEventListener('click', () => {
+    const url = apiFileUrl('reports/csv', { filter: JSON.stringify(state.reportFilter) });
+    window.open(url, '_blank');
+  });
+
+  await runReport();
 }
 
-/* -------- Behandlungen Tab -------- */
-async function renderBehandlungenTab(container, volk) {
-    const rows = await api('behandlungen', 'list', { params: { volk_id: volk.id } });
-    container.innerHTML = `
-    <div class="view-header"><h3 style="margin:0">Behandlungen</h3>
-        <button class="btn small" onclick='openBehandlungForm(null, ${volk.id})'>+ Neue Behandlung</button></div>
-    ${rows.length ? `<div class="card table-wrap"><table>
-        <thead><tr><th>Datum</th><th>Mittel</th><th>Menge</th><th>Wartezeit bis</th><th>Erfolgskontrolle</th><th></th></tr></thead>
-        <tbody>${rows.map(b => `<tr>
-            <td>${fmtDate(b.datum)}</td><td>${esc(b.mittel)}</td>
-            <td>${b.menge ?? '–'} ${esc(b.einheit) || ''}</td>
-            <td>${b.wartezeit_bis ? fmtDate(b.wartezeit_bis) : '–'}</td>
-            <td>${b.erfolgskontrolle_datum ? fmtDate(b.erfolgskontrolle_datum) + (b.erfolgskontrolle_ergebnis ? ' – ' + esc(b.erfolgskontrolle_ergebnis) : '') : '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openBehandlungForm(${b.id}, ${volk.id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntry('behandlungen', ${b.id}, ${volk.id}, 'behandlungen')">Löschen</button>
-            </td>
-        </tr>`).join('')}</tbody>
-    </table></div>` : `<div class="empty-state"><div class="emoji">💊</div>Noch keine Behandlungen erfasst.</div>`}
-    `;
-}
-async function openBehandlungForm(id, volkId) {
-    const rows = id ? await api('behandlungen', 'list', { params: { volk_id: volkId } }) : [];
-    const b = id ? rows.find(x => +x.id === id) : { datum: todayISO() };
-    openModal(id ? 'Behandlung bearbeiten' : 'Neue Behandlung', `
-    <form id="bForm">
-        <input type="hidden" name="volk_id" value="${volkId}">
-        <div class="form-grid">
-            <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${esc(b.datum)}" required></div>
-            <div class="form-row"><label>Mittel *</label><select name="mittel" required>${opts(BEHANDLUNGSMITTEL, b.mittel)}</select></div>
-        </div>
-        <div class="form-grid cols-3">
-            <div class="form-row"><label>Menge</label><input type="number" step="0.1" name="menge" value="${esc(b.menge)}"></div>
-            <div class="form-row"><label>Einheit</label><input type="text" name="einheit" value="${esc(b.einheit)}" placeholder="ml, Streifen, ..."></div>
-            <div class="form-row"><label>Methode</label><input type="text" name="methode" value="${esc(b.methode)}" placeholder="Verdunster, Träufeln..."></div>
-        </div>
-        <div class="form-grid">
-            <div class="form-row"><label>Wartezeit bis</label><input type="date" name="wartezeit_bis" value="${esc(b.wartezeit_bis)}"></div>
-            <div class="form-row"><label>Erfolgskontrolle am</label><input type="date" name="erfolgskontrolle_datum" value="${esc(b.erfolgskontrolle_datum)}"></div>
-        </div>
-        <div class="form-row"><label>Ergebnis der Erfolgskontrolle</label><input type="text" name="erfolgskontrolle_ergebnis" value="${esc(b.erfolgskontrolle_ergebnis)}"></div>
-        <div class="form-row"><label>Notizen</label><textarea name="notizen">${esc(b.notizen)}</textarea></div>
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-    document.getElementById('bForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const body = Object.fromEntries(new FormData(e.target).entries());
-        try {
-            if (id) await api('behandlungen', 'update', { method: 'PUT', params: { id }, body });
-            else await api('behandlungen', 'create', { method: 'POST', body });
-            closeModal(); toast('Behandlung gespeichert.'); router();
-        } catch (err) { const el = document.getElementById('formError'); el.textContent = err.message; el.hidden = false; }
-    });
+async function runReport() {
+  const out = $('#report-out');
+  out.innerHTML = `<p class="muted">${esc(t('common.loading'))}</p>`;
+  const data = await api('reports/query', { filter: state.reportFilter });
+  const s = data.summary;
+
+  const chip = (label, value) =>
+    value === null || value === undefined ? '' :
+    `<div class="stat"><div class="stat__value">${esc(value)}</div><div class="stat__label">${esc(label)}</div></div>`;
+
+  out.innerHTML =
+    `<div class="grid grid--stats" style="margin-bottom:1rem">
+       ${chip(t('inspections.title'), s.inspections)}
+       ${chip(t('reports.varroa_avg'), s.varroa_avg)}
+       ${chip(t('reports.varroa_max'), s.varroa_max)}
+       ${chip(t('feedings.title'), s.feedings)}
+       ${chip(t('reports.feed_total'), s.feed_total)}
+       ${chip(t('treatments.title'), s.treatments)}
+       ${chip(t('reports.harvest_kg'), s.harvest_kg)}
+       ${chip(t('reports.water_avg'), s.water_avg)}
+       ${chip(t('events.title'), s.events)}
+     </div>
+     <div class="card">
+       <h2>${esc(t('reports.rows', { n: data.rows.length }))}</h2>
+       ${data.rows.length ? `<div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>${esc(t('common.date'))}</th><th>${esc(t('common.type'))}</th>
+            <th>${esc(t('common.apiary'))}</th><th>${esc(t('common.colony'))}</th>
+            <th>${esc(t('common.summary'))}</th><th>${esc(t('field.notes'))}</th>
+            <th>${esc(t('common.user'))}</th>
+          </tr></thead>
+          <tbody>${data.rows.map(r => `<tr>
+            <td class="date">${esc(fmtDate(r.record_date))}</td>
+            <td><span class="pill pill--type">${esc(t('type.' + r.record_type))}</span></td>
+            <td>${esc(r.apiary_name || '')}</td>
+            <td>${esc(r.colony_name || '')}</td>
+            <td>${esc(r.summary || '')}</td>
+            <td>${esc(r.notes || '')}</td>
+            <td>${esc(r.user_name || '')}</td>
+          </tr>`).join('')}</tbody></table></div>`
+        : `<p class="muted">${esc(t('reports.empty'))}</p>`}
+     </div>`;
 }
 
-/* -------- Ernte Tab -------- */
-async function renderErnteTab(container, volk) {
-    const rows = await api('ernte', 'list', { params: { volk_id: volk.id } });
-    container.innerHTML = `
-    <div class="view-header"><h3 style="margin:0">Ernte</h3>
-        <button class="btn small" onclick='openErnteForm(null, ${volk.id})'>+ Neue Ernte</button></div>
-    ${rows.length ? `<div class="card table-wrap"><table>
-        <thead><tr><th>Datum</th><th>Sorte</th><th>Menge (kg)</th><th>Wassergehalt</th><th></th></tr></thead>
-        <tbody>${rows.map(e => `<tr>
-            <td>${fmtDate(e.datum)}</td><td>${esc(e.honigsorte) || '–'}</td>
-            <td>${e.menge_kg ?? '–'}</td><td>${e.wassergehalt ? e.wassergehalt + ' %' : '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openErnteForm(${e.id}, ${volk.id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntry('ernte', ${e.id}, ${volk.id}, 'ernte')">Löschen</button>
-            </td>
-        </tr>`).join('')}</tbody>
-    </table></div>` : `<div class="empty-state"><div class="emoji">🫙</div>Noch keine Ernte erfasst.</div>`}
-    `;
-}
-async function openErnteForm(id, volkId) {
-    const rows = id ? await api('ernte', 'list', { params: { volk_id: volkId } }) : [];
-    const e = id ? rows.find(x => +x.id === id) : { datum: todayISO() };
-    openModal(id ? 'Ernte bearbeiten' : 'Neue Ernte', `
-    <form id="eForm">
-        <input type="hidden" name="volk_id" value="${volkId}">
-        <div class="form-grid">
-            <div class="form-row"><label>Datum *</label><input type="date" name="datum" value="${esc(e.datum)}" required></div>
-            <div class="form-row"><label>Honigsorte</label><input type="text" name="honigsorte" value="${esc(e.honigsorte)}" placeholder="Frühtracht, Sommertracht, Waldhonig..."></div>
-        </div>
-        <div class="form-grid">
-            <div class="form-row"><label>Menge (kg)</label><input type="number" step="0.1" min="0" name="menge_kg" value="${esc(e.menge_kg)}"></div>
-            <div class="form-row"><label>Wassergehalt (%)</label><input type="number" step="0.1" min="0" max="30" name="wassergehalt" value="${esc(e.wassergehalt)}"></div>
-        </div>
-        <div class="form-row"><label>Notizen</label><textarea name="notizen">${esc(e.notizen)}</textarea></div>
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-    document.getElementById('eForm').addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        const body = Object.fromEntries(new FormData(ev.target).entries());
-        try {
-            if (id) await api('ernte', 'update', { method: 'PUT', params: { id }, body });
-            else await api('ernte', 'create', { method: 'POST', body });
-            closeModal(); toast('Ernte gespeichert.'); router();
-        } catch (err) { const el = document.getElementById('formError'); el.textContent = err.message; el.hidden = false; }
-    });
-}
+/* ------------------------------------------------------------------ users */
 
-async function deleteEntry(res, id, volkId, tab) {
-    if (!confirm('Diesen Eintrag wirklich löschen?')) return;
+async function viewUsers() {
+  const rows = await api('users/list');
+  state.users = rows;
+
+  $('#view').innerHTML =
+    topbar(t('users.title'), `<button class="btn btn--primary" data-new="users">${esc(t('users.new'))}</button>`) +
+    `<div class="card"><div class="table-wrap"><table class="data">
+      <thead><tr>
+        <th>${esc(t('common.username'))}</th><th>${esc(t('field.full_name'))}</th>
+        <th>${esc(t('field.email'))}</th><th>${esc(t('field.role'))}</th>
+        <th>${esc(t('field.locale'))}</th><th>${esc(t('field.is_active'))}</th>
+        <th>${esc(t('users.last_login'))}</th><th></th>
+      </tr></thead>
+      <tbody>${rows.map(u => `<tr>
+        <td class="mono">${esc(u.username)}</td>
+        <td>${esc(u.full_name || '')}</td>
+        <td>${esc(u.email || '')}</td>
+        <td>${esc(optLabel('role', u.role))}</td>
+        <td>${esc(LOCALES[u.locale] || u.locale)}</td>
+        <td>${Number(u.is_active) ? esc(t('common.yes')) : esc(t('common.no'))}</td>
+        <td class="date">${u.last_login_at ? esc(fmtDateTime(u.last_login_at)) : esc(t('users.never'))}</td>
+        <td><div class="row-actions">
+          <button class="btn btn--sm" data-edit-user="${u.id}">${esc(t('common.edit'))}</button>
+          <button class="btn btn--sm btn--danger" data-del-user="${u.id}">${esc(t('common.delete'))}</button>
+        </div></td>
+      </tr>`).join('')}</tbody></table></div></div>`;
+
+  $$('[data-new]').forEach(b => b.addEventListener('click', async () => {
+    if (await openForm('users', {})) viewUsers();
+  }));
+  $$('[data-edit-user]').forEach(b => b.addEventListener('click', async () => {
+    const u = rows.find(r => String(r.id) === b.dataset.editUser);
+    if (await openForm('users', u)) viewUsers();
+  }));
+  $$('[data-del-user]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm(t('common.confirm_delete'))) return;
     try {
-        await api(res, 'delete', { method: 'DELETE', params: { id } });
-        toast('Eintrag gelöscht.');
-        await renderVolkDetail(volkId, tab);
-    } catch (err) { toast(err.message, 'error'); }
+      await api('users/delete', { id: Number(b.dataset.delUser) });
+      toast(t('common.deleted'));
+      viewUsers();
+    } catch (e) { showError(e); }
+  }));
 }
 
-/* ==========================================================
-   GLOBALE LISTEN (Durchsichten / Fütterungen / Behandlungen / Ernte über alle Völker)
-   ========================================================== */
-async function genericGlobalList(title, res, columnsFn, addFn) {
-    const filterVolk = document.getElementById('globalVolkFilter')?.value || '';
-    const rows = await api(res, 'list', filterVolk ? { params: { volk_id: filterVolk } } : {});
-    return { rows };
-}
+async function viewProfile() {
+  const u = session.user;
+  $('#view').innerHTML =
+    topbar(t('profile.title')) +
+    `<form class="card form-grid" id="profile-form">
+       <label class="full">${esc(t('common.username'))}<input value="${esc(u.username)}" disabled></label>
+       <label>${esc(t('field.full_name'))}<input name="full_name" value="${esc(u.full_name || '')}"></label>
+       <label>${esc(t('field.email'))}<input name="email" type="email" value="${esc(u.email || '')}"></label>
+       <label>${esc(t('field.locale'))}
+         <select name="locale">${optionList(Object.entries(LOCALES), u.locale, null)}</select>
+       </label>
+       <div class="fieldset-title">${esc(t('profile.change_password'))}</div>
+       <label>${esc(t('profile.current_password'))}<input name="current_password" type="password" autocomplete="current-password"></label>
+       <label>${esc(t('profile.new_password'))}<input name="new_password" type="password" autocomplete="new-password"></label>
+       <div class="form-actions"><button class="btn btn--primary" type="submit">${esc(t('common.save'))}</button></div>
+     </form>`;
 
-async function renderDurchsichtenListe() {
-    await renderGlobalList({
-        title: 'Alle Durchsichten', res: 'durchsichten',
-        addLabel: '+ Neue Durchsicht',
-        onAdd: () => { if (!CACHE.voelker.length) return toast('Bitte zuerst ein Volk anlegen.', 'error'); openDurchsichtForm(null, CACHE.voelker[0].id); },
-        head: ['Datum', 'Volk', 'Wetter', 'Weiselrichtig', 'Varroa', ''],
-        row: d => `<tr>
-            <td>${fmtDate(d.datum)}</td>
-            <td><a href="#/voelker/${d.volk_id}">${esc(d.volk_bezeichnung)}</a></td>
-            <td>${d.wetter_temp_c !== null ? d.wetter_temp_c + '°C' : '–'}</td>
-            <td>${badgeWeiselrichtig(d.weiselrichtig)}</td>
-            <td>${esc(VARROA_STUFEN[d.varroa_befall] || '–')}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openDurchsichtForm(${d.id}, ${d.volk_id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntryGlobal('durchsichten', ${d.id})">Löschen</button>
-            </td></tr>`,
-        empty: 'Noch keine Durchsichten erfasst.',
-    });
-}
-async function renderFuetterungenListe() {
-    await renderGlobalList({
-        title: 'Alle Fütterungen', res: 'fuetterungen',
-        onAdd: () => { if (!CACHE.voelker.length) return toast('Bitte zuerst ein Volk anlegen.', 'error'); openFuetterungForm(null, CACHE.voelker[0].id); },
-        head: ['Datum', 'Volk', 'Futterart', 'Menge', ''],
-        row: f => `<tr>
-            <td>${fmtDate(f.datum)}</td>
-            <td><a href="#/voelker/${f.volk_id}">${esc(f.volk_bezeichnung)}</a></td>
-            <td>${esc(f.futterart)}</td>
-            <td>${f.menge ?? '–'} ${f.menge ? esc(f.einheit) : ''}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openFuetterungForm(${f.id}, ${f.volk_id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntryGlobal('fuetterungen', ${f.id})">Löschen</button>
-            </td></tr>`,
-        empty: 'Noch keine Fütterungen erfasst.',
-    });
-}
-async function renderBehandlungenListe() {
-    await renderGlobalList({
-        title: 'Alle Behandlungen', res: 'behandlungen',
-        onAdd: () => { if (!CACHE.voelker.length) return toast('Bitte zuerst ein Volk anlegen.', 'error'); openBehandlungForm(null, CACHE.voelker[0].id); },
-        head: ['Datum', 'Volk', 'Mittel', 'Wartezeit bis', ''],
-        row: b => `<tr>
-            <td>${fmtDate(b.datum)}</td>
-            <td><a href="#/voelker/${b.volk_id}">${esc(b.volk_bezeichnung)}</a></td>
-            <td>${esc(b.mittel)}</td>
-            <td>${b.wartezeit_bis ? fmtDate(b.wartezeit_bis) : '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openBehandlungForm(${b.id}, ${b.volk_id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntryGlobal('behandlungen', ${b.id})">Löschen</button>
-            </td></tr>`,
-        empty: 'Noch keine Behandlungen erfasst.',
-    });
-}
-async function renderErnteListe() {
-    await renderGlobalList({
-        title: 'Alle Ernten', res: 'ernte',
-        onAdd: () => { if (!CACHE.voelker.length) return toast('Bitte zuerst ein Volk anlegen.', 'error'); openErnteForm(null, CACHE.voelker[0].id); },
-        head: ['Datum', 'Volk', 'Sorte', 'Menge (kg)', ''],
-        row: e => `<tr>
-            <td>${fmtDate(e.datum)}</td>
-            <td><a href="#/voelker/${e.volk_id}">${esc(e.volk_bezeichnung)}</a></td>
-            <td>${esc(e.honigsorte) || '–'}</td>
-            <td>${e.menge_kg ?? '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openErnteForm(${e.id}, ${e.volk_id})'>Bearb.</button>
-                <button class="btn small danger" onclick="deleteEntryGlobal('ernte', ${e.id})">Löschen</button>
-            </td></tr>`,
-        empty: 'Noch keine Ernte erfasst.',
-    });
-}
-
-let CURRENT_GLOBAL_RES = null;
-async function renderGlobalList({ title, res, head, row, empty, onAdd }) {
-    CURRENT_GLOBAL_RES = res;
-    const rows = await api(res, 'list');
-    view.innerHTML = `
-    <div class="view-header"><h1>${esc(title)}</h1>
-        <div class="actions"><button class="btn" id="globalAddBtn">+ Neuer Eintrag</button></div></div>
-    ${rows.length ? `<div class="card table-wrap"><table>
-        <thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(row).join('')}</tbody>
-    </table></div>` : `<div class="empty-state"><div class="emoji">📄</div>${esc(empty)}</div>`}
-    `;
-    document.getElementById('globalAddBtn').addEventListener('click', onAdd);
-}
-async function deleteEntryGlobal(res, id) {
-    if (!confirm('Diesen Eintrag wirklich löschen?')) return;
+  $('#profile-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
     try {
-        await api(res, 'delete', { method: 'DELETE', params: { id } });
-        toast('Eintrag gelöscht.');
-        router();
-    } catch (err) { toast(err.message, 'error'); }
+      const data = await api('profile/save', { record: Object.fromEntries(fd.entries()) });
+      session.user = data.user;
+      setLocale(data.user.locale);
+      toast(t('common.saved'));
+      await startApp();
+      location.hash = '#/profile';
+    } catch (e) { showError(e); }
+  });
 }
 
-/* ==========================================================
-   AUFGABEN
-   ========================================================== */
-async function renderAufgaben() {
-    const rows = await api('aufgaben', 'list', { params: { zeige_erledigte: 1 } });
-    const offen = rows.filter(a => !a.erledigt);
-    const erledigt = rows.filter(a => a.erledigt);
-    view.innerHTML = `
-    <div class="view-header"><h1>Aufgaben</h1>
-        <div class="actions"><button class="btn" id="addAufgabeBtn">+ Neue Aufgabe</button></div></div>
-    <div class="card" style="margin-bottom:16px">
-        <h3 style="margin-top:0">Offen (${offen.length})</h3>
-        ${offen.length ? `<table><tbody>${offen.map(a => aufgabeRow(a)).join('')}</tbody></table>` : `<p class="hint">Keine offenen Aufgaben. 🎉</p>`}
-    </div>
-    ${erledigt.length ? `<div class="card">
-        <h3 style="margin-top:0">Erledigt (${erledigt.length})</h3>
-        <table><tbody>${erledigt.map(a => aufgabeRow(a)).join('')}</tbody></table>
-    </div>` : ''}
-    `;
-    document.getElementById('addAufgabeBtn').addEventListener('click', openAufgabeForm);
-}
-function aufgabeRow(a) {
-    return `<tr style="${a.erledigt ? 'opacity:.55;text-decoration:line-through' : ''}">
-        <td style="width:30px"><input type="checkbox" ${a.erledigt ? 'checked' : ''} onchange="toggleAufgabe(${a.id})"></td>
-        <td>${esc(a.titel)}</td>
-        <td class="hint">${a.volk_bezeichnung ? '🐝 ' + esc(a.volk_bezeichnung) : (a.standort_name ? '📍 ' + esc(a.standort_name) : '')}</td>
-        <td>${a.faelligkeit ? fmtDate(a.faelligkeit) : ''}</td>
-        <td class="row-actions"><button class="btn small danger" onclick="deleteAufgabe(${a.id})">Löschen</button></td>
-    </tr>`;
-}
-function openAufgabeForm() {
-    openModal('Neue Aufgabe', `
-    <form id="aForm">
-        <div class="form-row"><label>Titel *</label><input type="text" name="titel" required placeholder="z.B. Windschutz kontrollieren"></div>
-        <div class="form-grid">
-            <div class="form-row"><label>Fälligkeit</label><input type="date" name="faelligkeit"></div>
-            <div class="form-row"><label>Volk <span class="opt">(optional)</span></label>
-                <select name="volk_id"><option value="">–</option>${CACHE.voelker.map(v => `<option value="${v.id}">${esc(volkLabel(v))}</option>`).join('')}</select></div>
-        </div>
-        <div class="form-row"><label>Notizen</label><textarea name="notizen"></textarea></div>
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-    document.getElementById('aForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const body = Object.fromEntries(new FormData(e.target).entries());
-        try {
-            await api('aufgaben', 'create', { method: 'POST', body });
-            closeModal(); toast('Aufgabe gespeichert.'); router();
-        } catch (err) { const el = document.getElementById('formError'); el.textContent = err.message; el.hidden = false; }
-    });
-}
-async function toggleAufgabe(id) {
-    try { await api('aufgaben', 'toggle', { method: 'PUT', params: { id } }); router(); }
-    catch (err) { toast(err.message, 'error'); }
-}
-async function deleteAufgabe(id) {
-    if (!confirm('Aufgabe löschen?')) return;
-    try { await api('aufgaben', 'delete', { method: 'DELETE', params: { id } }); toast('Gelöscht.'); router(); }
-    catch (err) { toast(err.message, 'error'); }
+/* ----------------------------------------------------------------- backup */
+
+async function viewBackup() {
+  const data = await api('backup/list');
+
+  $('#view').innerHTML =
+    topbar(t('backup.title'),
+      `<button class="btn btn--primary" id="bk-create">${esc(t('backup.create'))}</button>`) +
+    `<div class="alert alert--info">${esc(t('backup.hint'))}</div>
+     <div class="card">
+       <h2>${esc(t('backup.list'))}</h2>
+       <p class="muted">${esc(t('backup.dir'))}: <span class="mono">${esc(data.dir)}</span></p>
+       ${data.files.length ? `<div class="table-wrap"><table class="data">
+         <thead><tr><th>${esc(t('backup.created_at'))}</th><th>${esc(t('field.name'))}</th>
+           <th class="num">${esc(t('backup.size'))}</th><th></th></tr></thead>
+         <tbody>${data.files.map(f => `<tr>
+           <td class="date">${esc(fmtDateTime(f.created))}</td>
+           <td class="mono">${esc(f.name)}</td>
+           <td class="num">${(f.size / 1024).toFixed(1)} KB</td>
+           <td><div class="row-actions">
+             <button class="btn btn--sm" data-dl="${esc(f.name)}">${esc(t('backup.download'))}</button>
+             <button class="btn btn--sm" data-restore="${esc(f.name)}">${esc(t('backup.restore'))}</button>
+             <button class="btn btn--sm btn--danger" data-delbk="${esc(f.name)}">${esc(t('common.delete'))}</button>
+           </div></td></tr>`).join('')}</tbody></table></div>`
+        : `<p class="muted">${esc(t('backup.empty'))}</p>`}
+     </div>
+
+     <div class="card">
+       <h2>${esc(t('backup.upload'))}</h2>
+       <div class="form-grid">
+         <label class="full"><input type="file" id="bk-file" accept=".gz,.json"></label>
+         <label class="check full"><input type="checkbox" id="bk-keep-users" checked> ${esc(t('backup.keep_users'))}</label>
+         <div class="form-actions">
+           <a class="btn" href="${apiFileUrl('backup/sql')}" target="_blank" rel="noopener">${esc(t('backup.sql'))}</a>
+           <button class="btn btn--primary" id="bk-upload">${esc(t('backup.upload'))}</button>
+         </div>
+       </div>
+     </div>`;
+
+  $('#bk-create').addEventListener('click', async () => {
+    try {
+      const r = await api('backup/create');
+      toast(t('backup.created', { file: r.file }));
+      viewBackup();
+    } catch (e) { showError(e); }
+  });
+
+  $$('[data-dl]').forEach(b => b.addEventListener('click', () => {
+    window.location = apiFileUrl('backup/download', { file: b.dataset.dl });
+  }));
+
+  $$('[data-restore]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm(t('backup.confirm_restore'))) return;
+    try {
+      await api('backup/restore', { file: b.dataset.restore, keep_users: $('#bk-keep-users').checked });
+      toast(t('backup.restored'));
+      await refreshLookups();
+      location.hash = '#/dashboard';
+    } catch (e) { showError(e); }
+  }));
+
+  $$('[data-delbk]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm(t('common.confirm_delete'))) return;
+    try {
+      await api('backup/delete', { file: b.dataset.delbk });
+      viewBackup();
+    } catch (e) { showError(e); }
+  }));
+
+  $('#bk-upload').addEventListener('click', async () => {
+    const file = $('#bk-file').files[0];
+    if (!file) { toast(t('err.no_file'), true); return; }
+    try {
+      await apiUpload('backup/upload', file);
+      toast(t('common.saved'));
+      viewBackup();
+    } catch (e) { showError(e); }
+  });
 }
 
-/* ==========================================================
-   BENUTZERVERWALTUNG (nur Admin)
-   ========================================================== */
-async function renderBenutzer() {
-    if (CURRENT_USER.role !== 'admin') { view.innerHTML = '<div class="empty-state">Kein Zugriff.</div>'; return; }
-    const rows = await api('users', 'list');
-    view.innerHTML = `
-    <div class="view-header"><h1>Benutzer</h1>
-        <div class="actions"><button class="btn" id="addUserBtn">+ Neuer Benutzer</button></div></div>
-    <div class="card table-wrap"><table>
-        <thead><tr><th>Name</th><th>Benutzername</th><th>Rolle</th><th>Status</th><th>Letzter Login</th><th></th></tr></thead>
-        <tbody>${rows.map(u => `<tr>
-            <td>${esc(u.name)}</td><td>${esc(u.username)}</td>
-            <td>${u.role === 'admin' ? '<span class="badge honey">Admin</span>' : '<span class="badge gray">Imker</span>'}</td>
-            <td>${u.active ? '<span class="badge green">Aktiv</span>' : '<span class="badge red">Deaktiviert</span>'}</td>
-            <td>${u.last_login ? fmtDateTime(u.last_login) : '–'}</td>
-            <td class="row-actions">
-                <button class="btn small secondary" onclick='openUserForm(${JSON.stringify(u).replace(/'/g, "&#39;")})'>Bearb.</button>
-                ${u.id !== CURRENT_USER.id ? `<button class="btn small danger" onclick="deleteUser(${u.id})">Löschen</button>` : ''}
-            </td>
-        </tr>`).join('')}</tbody>
-    </table></div>
-    `;
-    document.getElementById('addUserBtn').addEventListener('click', () => openUserForm());
+async function viewLog() {
+  const rows = await api('log/list');
+  $('#view').innerHTML =
+    topbar(t('log.title')) +
+    `<div class="card"><div class="table-wrap"><table class="data">
+      <thead><tr><th>${esc(t('log.when'))}</th><th>${esc(t('common.user'))}</th>
+        <th>${esc(t('log.action'))}</th><th>${esc(t('log.entity'))}</th>
+        <th>${esc(t('log.detail'))}</th><th>IP</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td class="date">${esc(fmtDateTime(r.created_at))}</td>
+        <td>${esc(r.username || '')}</td>
+        <td class="mono">${esc(r.action)}</td>
+        <td>${esc(r.entity || '')}${r.entity_id ? ' #' + esc(r.entity_id) : ''}</td>
+        <td>${esc(r.detail || '')}</td>
+        <td class="mono">${esc(r.ip || '')}</td>
+      </tr>`).join('')}</tbody></table></div></div>`;
 }
-function openUserForm(u) {
-    const id = u?.id;
-    openModal(id ? 'Benutzer bearbeiten' : 'Neuer Benutzer', `
-    <form id="uForm">
-        <div class="form-grid">
-            <div class="form-row"><label>Name *</label><input type="text" name="name" value="${esc(u?.name)}" required></div>
-            <div class="form-row"><label>Benutzername *</label><input type="text" name="username" value="${esc(u?.username)}" ${id ? 'disabled' : 'required'}></div>
-        </div>
-        <div class="form-grid">
-            <div class="form-row"><label>E-Mail</label><input type="email" name="email" value="${esc(u?.email)}"></div>
-            <div class="form-row"><label>Rolle</label><select name="role">
-                <option value="imker" ${u?.role === 'imker' ? 'selected' : ''}>Imker</option>
-                <option value="admin" ${u?.role === 'admin' ? 'selected' : ''}>Administrator</option>
-            </select></div>
-        </div>
-        <div class="form-row"><label>${id ? 'Neues Passwort (leer lassen für keine Änderung)' : 'Passwort *'}</label>
-            <input type="password" name="password" ${id ? '' : 'required'} minlength="6" placeholder="mind. 6 Zeichen"></div>
-        ${id ? `<div class="checkbox-row form-row"><input type="checkbox" id="uactive" name="active" ${u.active ? 'checked' : ''}><label for="uactive">Konto aktiv</label></div>` : ''}
-        <p class="error-msg" id="formError" hidden></p>
-        <div class="form-actions">
-            <button type="button" class="btn secondary" onclick="closeModal()">Abbrechen</button>
-            <button type="submit" class="btn">Speichern</button>
-        </div>
-    </form>`);
-    document.getElementById('uForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const body = Object.fromEntries(fd.entries());
-        if (id) body.active = e.target.active ? e.target.active.checked : true;
-        if (!body.password) delete body.password;
-        try {
-            if (id) await api('users', 'update', { method: 'PUT', params: { id }, body });
-            else await api('users', 'create', { method: 'POST', body });
-            closeModal(); toast('Benutzer gespeichert.'); router();
-        } catch (err) { const el = document.getElementById('formError'); el.textContent = err.message; el.hidden = false; }
-    });
-}
-async function deleteUser(id) {
-    if (!confirm('Diesen Benutzer wirklich löschen?')) return;
-    try { await api('users', 'delete', { method: 'DELETE', params: { id } }); toast('Benutzer gelöscht.'); router(); }
-    catch (err) { toast(err.message, 'error'); }
+
+/* ------------------------------------------------------------------ misc. */
+
+function emptyState(title, text) {
+  return `<div class="card empty">
+    <div class="empty__title">${esc(title)}</div>
+    <p class="muted">${esc(text)}</p>
+  </div>`;
 }

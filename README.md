@@ -1,204 +1,162 @@
-# 🐝 Imkerei-Tagebuch
+# Beekeeping Journal
 
-Eine vollständige Web-App zur Verwaltung von Bienenständen und -völkern:
-Standorte, Völker (Rasse, Beute, Königin, Status), Durchsichten/Stockkarte
-(mit **automatischem Wetter-Eintrag**), Fütterungen, Behandlungen (z.B.
-Varroa), Ernte sowie Aufgaben/Erinnerungen. Mit Benutzerverwaltung
-(Admin/Imker-Rollen).
+A self-hosted beekeeping record book for a Synology NAS. It keeps track of
+apiaries, colonies and queens, and documents everything you do at the hive:
+inspections, feedings, treatments, harvests, events and open tasks. Weather at
+the apiary is filled in automatically for every entry, the interface speaks
+German and English, and reports can be filtered down to a single colony and a
+single season.
 
-Technik: **PHP 8 + MariaDB**, läuft nativ über die Synology-Pakete
-**Web Station** und **MariaDB 10**. Kein Node.js, kein Build-Prozess –
-einfach hochladen und loslegen.
-
----
-
-## 1. Voraussetzungen auf dem Synology NAS (DSM)
-
-Installiere im **Paketzentrum** folgende Pakete (falls noch nicht vorhanden):
-
-1. **Web Station** – stellt Apache/nginx + PHP bereit
-2. **MariaDB 10** (oder neuer) – die Datenbank
-3. **phpMyAdmin** – komfortabel, um die Datenbank per Weboberfläche anzulegen
-   (alternativ SSH-Zugriff nutzen)
-
-Nach der Installation von Web Station: Öffne Web Station → **PHP-Einstellungen**
-und stelle sicher, dass mindestens ein **PHP 8.x-Profil** aktiviert ist, mit
-den Erweiterungen `pdo_mysql`, `mbstring`, `openssl` (in DSM standardmäßig
-aktiv).
+Runs on **Web Station (PHP)** and **MariaDB 10**, both from the DSM Package
+Center. No build step, no external service, no API key.
 
 ---
 
-## 2. Datenbank anlegen
+## Features
 
-1. Öffne **phpMyAdmin** im DSM.
-2. Neue Datenbank erstellen: Name z.B. `imkerei`, Zeichensatz `utf8mb4_general_ci`.
-3. Neuen Datenbank-Benutzer anlegen (nicht `root` verwenden!), z.B.
-   `imkerei_app` mit einem starken Passwort, und ihm **alle Rechte** auf die
-   Datenbank `imkerei` geben.
-4. Tabelle „Importieren" wählen und die Datei `sql/schema.sql` aus diesem
-   Projekt hochladen. Das legt alle Tabellen an und erstellt einen
-   Standard-Admin-Benutzer:
-   - **Benutzername:** `admin`
-   - **Passwort:** `admin123`
+**Colonies and apiaries**
+- Apiaries with address, coordinates, elevation and forage notes. Coordinates
+  can be looked up by place name.
+- Colonies with number, race, origin, hive type, frame size, box count,
+  establishment date, status and parent colony (so splits stay traceable).
+- Queen records per colony: birth year, marking colour, mating type, breeder,
+  introduction and removal dates, clipped wings. The colony card is colour
+  coded with the international queen marking colour of the queen's year.
 
-   ⚠️ **Bitte dieses Passwort direkt nach dem ersten Login über die
-   Benutzerverwaltung in der App ändern!**
+**Journal**
+- **Inspections** – bees on frames, brood frames, temperament, queen seen,
+  eggs/larvae/capped brood, queen cells and their type, drone brood, swarm
+  mood, stores, supers, space given, varroa drop with counting method and
+  period, health status, hive weight, notes, and the weather at that moment.
+- **Feedings** – feed type, amount, unit.
+- **Treatments** – target, product, active substance, dose, application
+  method, temperature, batch number, withdrawal period.
+- **Harvests** – honey type, frames, gross/net weight, water content, jars,
+  batch number.
+- **Events** – swarms, splits, merges, requeening, losses, migration,
+  maintenance, wintering.
+- **Tasks** – with due date, priority, assignee, per colony or apiary.
 
----
+**Everything else**
+- User management with three roles: administrator, beekeeper (write access),
+  viewer (read only). Sessions, bcrypt password hashes, CSRF protection, audit
+  log.
+- Automatic weather per entry from Open-Meteo, using the coordinates of the
+  apiary the colony stands on. Past entries use the weather archive, so a
+  record you type in three weeks late still gets the right weather. Responses
+  are cached per apiary and day.
+- Two interface languages (German, English), switchable at any time and stored
+  per user. Dates and times use native date pickers.
+- Backup and restore from inside the app, plus a portable SQL export.
+- Reports: pick record types, apiary, colony, user, date range and a text
+  search; get a merged timeline with key figures, print it or export CSV.
 
-## 3. App-Dateien auf das NAS hochladen
+## Requirements
 
-1. Erstelle im **Web Station**-Bereich einen neuen virtuellen Host bzw.
-   nutze den Standard-Webordner `web` (Datei-Station → `web`-Freigabe).
-   Empfehlung: eigenen Unterordner anlegen, z.B. `web/imkerei`.
-2. Lade den **kompletten Inhalt** dieses Projekt-Ordners (alle Dateien und
-   Unterordner: `api.php`, `index.php`, `login.php`, `assets/`, `config/`,
-   `includes/`, `sql/`, `.htaccess`) per Datei-Station oder FTP/SFTP dorthin
-   hoch.
-3. Kopiere `config/config.sample.php` zu `config/config.php` (z.B. über
-   die Datei-Station: Datei duplizieren, dann umbenennen) und trage dort ein:
+| Component | Version | Source |
+|-----------|---------|--------|
+| DSM       | 7.x     | Synology |
+| Web Station | current | Package Center |
+| PHP       | 7.4 or newer (8.x recommended) | Package Center |
+| MariaDB   | 10      | Package Center |
 
-   ```php
-   define('DB_HOST', 'localhost');
-   define('DB_PORT', '3306');
-   define('DB_NAME', 'imkerei');
-   define('DB_USER', 'imkerei_app');
-   define('DB_PASS', 'DEIN_DB_PASSWORT');
-   define('APP_SECRET', 'ein_zufaelliger_langer_string');
-   ```
+PHP extensions: `pdo_mysql`, `json`, and `curl` or `allow_url_fopen` for the
+weather lookup. Everything else is core PHP.
 
-   Einen zufälligen `APP_SECRET`-String kannst du z.B. so erzeugen: über
-   SSH auf dem NAS `openssl rand -hex 32` ausführen, oder einfach eine
-   lange zufällige Zeichenkette selbst eintippen.
+## Installation
 
-4. **Wichtig (Berechtigungen):** Stelle sicher, dass der Webserver-Nutzer
-   (i.d.R. `http`) Lesezugriff auf alle Dateien hat. Das ist bei
-   Standard-Uploads über die Datei-Station normalerweise automatisch der Fall.
+The full walkthrough with DSM screenshots-worth of detail is in
+[docs/INSTALL_SYNOLOGY.md](docs/INSTALL_SYNOLOGY.md). Short version:
 
----
+1. Install MariaDB 10, phpMyAdmin, Web Station and a PHP profile in the
+   Package Center.
+2. Create a database `beekeeping` and a database user with all privileges on it.
+3. Copy this folder to `/volume1/web/beekeeping` (or any folder served by a
+   Web Station web portal).
+4. Make `api/` and `backups/` writable for the web server user (`http`).
+5. Open `http://<nas>:<port>/install.php`, fill in the database credentials and
+   create the first administrator.
+6. **Delete `install.php`.** Then open `index.html` and sign in.
 
-## 4. Virtuellen Host / Portfreigabe einrichten
-
-In **Web Station → Web-Dienstportal**:
-
-- Lege einen neuen "Web Portal"-Eintrag an (Typ: Name-basiert oder
-  Port-basiert), der auf den Ordner `web/imkerei` zeigt.
-- Wähle als Backend-Server **PHP 8.x**.
-- Aktiviere für den Host `.htaccess`-Unterstützung (Apache) bzw. stelle bei
-  nginx sicher, dass Zugriff auf `config/`, `includes/`, `sql/` gesperrt ist
-  (die mitgelieferten `.htaccess`-Dateien greifen automatisch bei Apache).
-
-Danach ist die App erreichbar unter z.B.:
-`http://<NAS-IP>:<Port>/login.php`
-
-### HTTPS empfohlen
-Richte über **Systemsteuerung → Sicherheit → Zertifikat** ein Let's-Encrypt-
-Zertifikat ein und leite den Zugriff über einen **Reverse Proxy** (DSM →
-Anmeldeportal → Erweitert → Reverse-Proxy) auf HTTPS um. Setze danach in
-`config/config.php`:
-
-```php
-define('SESSION_SECURE_COOKIE', true);
-```
-
----
-
-## 5. Erste Anmeldung
-
-1. Rufe `https://deine-domain-oder-ip/login.php` auf.
-2. Melde dich mit `admin` / `admin123` an.
-3. Gehe sofort zu **Benutzer** → Administrator bearbeiten → neues Passwort
-   vergeben.
-4. Lege deine **Standorte** an (Adresse eingeben und auf „Koordinaten
-   automatisch ermitteln" klicken – das befüllt Lat/Lon automatisch über
-   die kostenlose Open-Meteo-Geokodierung, ohne API-Key).
-5. Lege deine **Völker** an den Standorten an.
-6. Bei jeder neuen **Durchsicht** wird das Wetter für den gewählten Tag und
-   Standort automatisch abgerufen und eingetragen (nutzbar/überschreibbar).
-
----
-
-## 6. Funktionsüberblick
-
-| Bereich | Enthält |
-|---|---|
-| **Standorte** | Name, Adresse, Koordinaten (für Wetter), Trachtangebot, Notizen |
-| **Völker** | Bezeichnung, Standort, Rasse, Beutentyp, Zargenzahl, Herkunft, Status, Königin (Jahr, Herkunft, Zeichenfarbe/gezeichnet) |
-| **Durchsichten** | Datum/Uhrzeit, **automatisches Wetter**, Brutstadien, Volksstärke, Weiselrichtigkeit, Schwarmzellen, Varroa-Einschätzung, Krankheitsanzeichen, Sanftmut/Wabensitz/Stechlust (Bewertungsskalen), Maßnahmen, Notizen |
-| **Fütterungen** | Datum, Futterart, Menge/Einheit, Notizen |
-| **Behandlungen** | Datum, Mittel, Menge/Methode, Wartezeit, Erfolgskontrolle |
-| **Ernte** | Datum, Sorte, Menge (kg), Wassergehalt |
-| **Aufgaben** | Freie Erinnerungen mit Fälligkeitsdatum, optional an Volk/Standort geknüpft |
-| **Benutzer** | Rollen Admin/Imker, Konten aktivieren/deaktivieren, Passwörter zurücksetzen |
-| **Dashboard** | Kennzahlen, letzte Durchsichten, offene Aufgaben, Völker ohne Kontrolle seit &gt;30 Tagen |
-
-Alle Datum-Felder sind native `<input type="date">`-Kalenderfelder, alle
-Kategorien (Rasse, Beutentyp, Futterart, Behandlungsmittel, ...) sind
-Auswahllisten – kann bei Bedarf leicht in `assets/js/app.js` (oben, Konstanten
-`RASSEN`, `BEUTENTYPEN`, `FUTTERARTEN`, `BEHANDLUNGSMITTEL`, ...) erweitert
-werden.
-
----
-
-## 7. Wetterdaten
-
-Die App nutzt die kostenlose **Open-Meteo API** (kein API-Key nötig,
-https://open-meteo.com). Für aktuelle/kommende Tage sowie kurz
-zurückliegende Tage wird die Vorhersage-API genutzt, für länger
-zurückliegende Termine automatisch die Archiv-API. Voraussetzung ist, dass
-der Standort über Koordinaten (Lat/Lon) verfügt – diese werden beim Anlegen
-eines Standorts per Adress-Eingabe automatisch ermittelt.
-
-Das NAS benötigt dafür eine ausgehende Internetverbindung auf Port 443.
-
----
-
-## 8. Datensicherung
-
-Da alle Daten in MariaDB liegen, reicht ein regelmäßiger Export über
-**phpMyAdmin** (Export → SQL) oder – komfortabler – die Einrichtung eines
-**Hyper Backup**-Jobs, der den MariaDB-Datenordner des Pakets sichert.
-Zusätzlich empfiehlt sich, den App-Ordner (insbesondere `config/config.php`)
-in die Sicherung einzubeziehen.
-
----
-
-## 9. Struktur des Projekts
+## Layout
 
 ```
-imker-tagebuch/
-├── api.php                  # Zentrale REST-API (alle Ressourcen)
-├── index.php                # App-Oberfläche (nach Login)
-├── login.php                # Login-Seite
-├── .htaccess
-├── config/
-│   ├── config.sample.php    # Vorlage – nach config.php kopieren & anpassen
-│   └── .htaccess            # sperrt direkten Web-Zugriff
-├── includes/
-│   ├── config_loader.php
-│   ├── db.php                # PDO-Verbindung
-│   ├── auth.php               # Login/Session/CSRF
-│   └── weather.php            # Open-Meteo Anbindung
-├── sql/
-│   └── schema.sql            # Datenbankschema + Standard-Admin
-└── assets/
-    ├── css/style.css
-    └── js/app.js              # komplette Frontend-Logik (SPA)
+index.html              application shell
+install.php             one-time setup wizard (delete after use)
+assets/css/app.css      stylesheet
+assets/js/i18n.js       German and English strings
+assets/js/schema.js     field, option and column definitions
+assets/js/api.js        API client
+assets/js/app.js        views, routing, forms
+api/index.php           single API entry point (api/index.php?r=group/action)
+api/config.php          created by the installer, never in version control
+api/lib/core.php        config, PDO, JSON helpers
+api/lib/auth.php        sessions, login, CSRF, roles
+api/lib/entities.php    entity definitions and generic list/save/delete
+api/lib/weather.php     Open-Meteo lookup and cache, place search
+api/lib/reports.php     report engine, CSV export, dashboard figures
+api/lib/backup.php      snapshots, restore, SQL export
+api/lib/users.php       user management and profile
+db/schema.sql           database schema
+backups/                snapshot files (not served over HTTP)
 ```
 
----
+## How the API works
 
-## 10. Erweiterungsideen
+Every call is `POST api/index.php?r=<group>/<action>` with a JSON body and
+returns `{"ok":true,"data":…}` or `{"ok":false,"error":"<key>"}`. The error key
+is translated in the browser, so the server never sends localised text. Three
+routes stream files instead of JSON: `reports/csv`, `backup/download` and
+`backup/sql`.
 
-Die Datenbank ist so ausgelegt, dass sich leicht weitere Module ergänzen
-lassen, z.B.:
-- Ablegerbildung / Königinnenzucht als eigene Tabelle
-- Foto-Uploads zu Durchsichten
-- Export als PDF/CSV (Jahresbericht je Volk)
-- Push-Erinnerungen für fällige Aufgaben per E-Mail (z.B. über PHP `mail()`
-  und einen Cron-Job in der Synology-Aufgabenplanung)
+Writing requests need the CSRF token from `auth/me` in the `X-CSRF-Token`
+header. Column names are whitelisted per entity in `api/lib/entities.php`;
+anything not listed there cannot be written, whatever the client sends.
 
-Bei Bedarf einfach die entsprechende Tabelle in `sql/schema.sql`, den
-passenden `case`-Block in `api.php` sowie die View/Formulare in
-`assets/js/app.js` ergänzen – das bestehende Muster (Standorte/Völker/...)
-lässt sich 1:1 übertragen.
+## Adding a field
+
+1. Add the column to `db/schema.sql` (and to your live database).
+2. Add it to the entity's `fields` list in `api/lib/entities.php`.
+3. Add it to the form in `assets/js/schema.js`, and to `COLUMNS` if it should
+   appear in the table.
+4. Add `field.<column>` to both language blocks in `assets/js/i18n.js`.
+
+## Backup
+
+Two independent layers, use both:
+
+- **In the app** (Backup page, administrators only): creates a compressed JSON
+  snapshot of all tables in `backups/`. Restore replaces the data, after
+  automatically taking a snapshot of the current state first. You can keep the
+  existing user accounts while replacing journal data. The SQL export produces
+  a dump for phpMyAdmin or the `mysql` client.
+- **On the NAS**: Hyper Backup for the MariaDB database and for the web folder.
+  The app-level snapshots do not replace a real off-device backup.
+
+`backup_keep` in `api/config.php` limits how many snapshots are kept.
+
+## Security notes
+
+- Passwords are hashed with bcrypt (`password_hash`), sessions are HttpOnly and
+  SameSite=Lax, and every writing request is CSRF-checked.
+- Put the site behind HTTPS. On DSM, either use a reverse proxy with a Let's
+  Encrypt certificate, or a certificate on the Web Station portal itself.
+- Do not expose the NAS to the internet without a reverse proxy, and consider
+  restricting the portal to your LAN or a VPN.
+- Delete `install.php` after setup; it refuses to run once users exist, but it
+  does not belong on a live system.
+- Ideally move `backup_dir` to a path outside the web root, for example
+  `/volume1/beekeeping-backups`.
+
+## Weather data
+
+Weather comes from [Open-Meteo](https://open-meteo.com/) (free, no key,
+CC-BY 4.0 attribution). Entries up to six days old use the forecast/observation
+endpoint, older ones the archive endpoint. Values land in the inspection record
+and stay editable. If the NAS has no outbound internet access, set
+`weather.enabled` to `false` in `api/config.php`; everything else keeps
+working.
+
+## Licence
+
+MIT for this code. Open-Meteo data is licensed CC-BY 4.0.
