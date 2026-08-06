@@ -43,10 +43,55 @@ async function api(route, body) {
   return payload.data;
 }
 
-/** Build a URL for the routes that stream a file instead of JSON. */
-function apiFileUrl(route, params) {
-  const q = new URLSearchParams({ r: route, csrf: session.csrf || '', ...(params || {}) });
-  return `${API_URL}?${q.toString()}`;
+/** Hand a blob to the browser as a download, without ever leaving the page. */
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function filenameFromHeaders(headers, fallback) {
+  const cd = headers.get('Content-Disposition') || '';
+  const m = /filename="?([^";]+)"?/i.exec(cd);
+  return m ? m[1] : fallback;
+}
+
+/**
+ * Routes that answer with a file rather than JSON.
+ *
+ * POST with the token in a header, like every other call: a GET download would
+ * have to carry the CSRF token in the URL, where it ends up in the web server
+ * access log and in the browser history.
+ */
+async function apiDownload(route, body, fallbackName) {
+  let res;
+  try {
+    res = await fetch(`${API_URL}?r=${encodeURIComponent(route)}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session.csrf ? { 'X-CSRF-Token': session.csrf } : {})
+      },
+      body: JSON.stringify(body || {})
+    });
+  } catch (e) {
+    throw new Error('err.network');
+  }
+  // A refusal still arrives as JSON, so report it like any other API error.
+  if (!res.ok || (res.headers.get('Content-Type') || '').includes('application/json')) {
+    let payload = {};
+    try { payload = await res.json(); } catch (e) { /* not JSON after all */ }
+    const err = new Error('err.' + (payload.error || 'server_error'));
+    err.detail = payload.detail;
+    throw err;
+  }
+  saveBlob(await res.blob(), filenameFromHeaders(res.headers, fallbackName));
 }
 
 /** Multipart upload (backup files). */

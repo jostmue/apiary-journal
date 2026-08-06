@@ -95,7 +95,7 @@ api/lib/core.php        config, PDO, JSON helpers
 api/lib/auth.php        sessions, login, CSRF, roles
 api/lib/entities.php    entity definitions and generic list/save/delete
 api/lib/weather.php     Open-Meteo lookup and cache, address search
-api/lib/reports.php     report engine, CSV export, dashboard figures
+api/lib/reports.php     report engine and dashboard figures
 api/lib/backup.php      snapshots, restore, SQL export
 api/lib/users.php       user management and profile
 db/schema.sql           database schema
@@ -106,9 +106,11 @@ backups/                snapshot files (default location, see Backup)
 
 Every call is `POST api/index.php?r=<group>/<action>` with a JSON body and
 returns `{"ok":true,"data":…}` or `{"ok":false,"error":"<key>"}`. The error key
-is translated in the browser, so the server never sends localised text. Three
-routes stream files instead of JSON: `reports/csv`, `backup/download` and
-`backup/sql`.
+is translated in the browser, so the server never sends localised text. Two
+routes answer with a file instead of JSON, `backup/download` and `backup/sql`;
+they are POSTed like everything else, so the CSRF token never appears in a URL.
+The CSV export is assembled in the browser from the rows already on screen,
+which is what lets option values appear in the selected language.
 
 Writing requests need the CSRF token from `auth/me` in the `X-CSRF-Token`
 header. Column names are whitelisted per entity in `api/lib/entities.php`;

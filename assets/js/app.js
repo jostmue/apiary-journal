@@ -104,7 +104,8 @@ const state = {
   users: [],
   route: '',
   reportFilter: null,
-  reportView: 'detail'
+  reportView: 'detail',
+  reportRows: []
 };
 
 const canWrite = () => session.user && (session.user.role === 'admin' || session.user.role === 'beekeeper');
@@ -1305,10 +1306,7 @@ async function viewReports() {
     runReport();
   }));
   $('#rep-print').addEventListener('click', () => window.print());
-  $('#rep-csv').addEventListener('click', () => {
-    const url = apiFileUrl('reports/csv', { filter: JSON.stringify(state.reportFilter) });
-    window.open(url, '_blank');
-  });
+  $('#rep-csv').addEventListener('click', exportReportCsv);
 
   await runReport();
 }
@@ -1417,6 +1415,60 @@ function detailBlockHtml(row) {
     </article>`;
 }
 
+/**
+ * One CSV cell.
+ *
+ * Excel and LibreOffice execute a value starting with =, +, - or @ as a
+ * formula, so those get a leading apostrophe. Everything is quoted, and a
+ * quote inside the value is doubled.
+ */
+function csvCell(value) {
+  let s = value === null || value === undefined ? '' : String(value);
+  if (s !== '' && '=+-@\t\r'.includes(s[0])) {
+    s = "'" + s;
+  }
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+/**
+ * The report as CSV, built from the rows already on screen. Assembling it here
+ * rather than on the server is what lets option values appear in the chosen
+ * language - the database only stores keys like "syrup_3_2".
+ */
+function exportReportCsv() {
+  const rows = state.reportRows || [];
+  if (!rows.length) {
+    toast(t('reports.empty'), true);
+    return;
+  }
+  const head = [
+    t('common.date'), t('common.type'), t('common.apiary'), t('common.colony'),
+    t('common.user'), t('common.summary'), t('field.notes')
+  ];
+  const lines = [head.map(csvCell).join(';')];
+  for (const r of rows) {
+    lines.push([
+      fmtDate(r.record_date),
+      t('type.' + r.record_type),
+      r.apiary_name || '',
+      r.colony_name || '',
+      r.user_name || '',
+      recordSummary(r),
+      r.notes ?? r.description ?? ''
+    ].map(csvCell).join(';'));
+  }
+  // The BOM is what makes Excel read the file as UTF-8.
+  const blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'],
+    { type: 'text/csv;charset=utf-8' });
+  saveBlob(blob, `apiary-journal-report-${todayStamp()}.csv`);
+}
+
+function todayStamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 async function runReport() {
   const out = $('#report-out');
   out.innerHTML = `<p class="muted">${esc(t('common.loading'))}</p>`;
@@ -1424,6 +1476,7 @@ async function runReport() {
   // Both views read full records: the table's summary column is composed
   // here so that option values appear in the chosen language.
   const data = await api('reports/detail', { filter: state.reportFilter });
+  state.reportRows = data.rows;   // the CSV export builds on these
   const s = data.summary;
 
   const chip = (label, value) =>
@@ -1584,7 +1637,7 @@ async function viewBackup() {
          <label class="full"><input type="file" id="bk-file" accept=".gz,.json"></label>
          <label class="check full"><input type="checkbox" id="bk-keep-users" checked> ${esc(t('backup.keep_users'))}</label>
          <div class="form-actions">
-           <a class="btn" href="${apiFileUrl('backup/sql')}" target="_blank" rel="noopener">${esc(t('backup.sql'))}</a>
+           <button class="btn" id="bk-sql">${esc(t('backup.sql'))}</button>
            <button class="btn btn--primary" id="bk-upload">${esc(t('backup.upload'))}</button>
          </div>
        </div>
@@ -1598,8 +1651,16 @@ async function viewBackup() {
     } catch (e) { showError(e); }
   });
 
-  $$('[data-dl]').forEach(b => b.addEventListener('click', () => {
-    window.location = apiFileUrl('backup/download', { file: b.dataset.dl });
+  $('#bk-sql')?.addEventListener('click', async () => {
+    try {
+      await apiDownload('backup/sql', {}, 'apiary-journal.sql');
+    } catch (e) { showError(e); }
+  });
+
+  $$('[data-dl]').forEach(b => b.addEventListener('click', async () => {
+    try {
+      await apiDownload('backup/download', { file: b.dataset.dl }, b.dataset.dl);
+    } catch (e) { showError(e); }
   }));
 
   $$('[data-restore]').forEach(b => b.addEventListener('click', async () => {

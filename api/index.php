@@ -4,8 +4,8 @@
  *
  * All calls go to  api/index.php?r=<group>/<action>  which works on Apache
  * and nginx alike, so no rewrite rules are needed on DSM's Web Station.
- * Requests and responses are JSON; two routes stream files instead
- * (reports/csv, backup/download, backup/sql).
+ * Requests and responses are JSON; two routes stream a file instead
+ * (backup/download, backup/sql), both by POST like everything else.
  */
 
 declare(strict_types=1);
@@ -109,9 +109,7 @@ switch ($route) {
     // dashboard and reports --------------------------------------------------
     case 'stats/summary':      handle_stats(); break;
     case 'stats/recent':       handle_recent(); break;
-    case 'reports/query':      handle_report(); break;
     case 'reports/detail':     handle_report_detail(); break;
-    case 'reports/csv':        handle_report_csv(); break;
 
     // users ------------------------------------------------------------------
     case 'users/list':         handle_users_list(); break;

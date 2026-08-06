@@ -167,7 +167,7 @@ function entity_select(string $name, array $def): string
                            (SELECT COUNT(*) FROM colonies c WHERE c.apiary_id = a.id AND c.status = 'active') AS colony_count
                     FROM apiaries a";
         case 'tasks':
-            return "SELECT t.*, c.name AS colony_name, a.name AS apiary_name, u.username AS assignee_name
+            return "SELECT t.*, c.name AS colony_name, a.name AS apiary_name, COALESCE(NULLIF(u.full_name, ''), u.username) AS assignee_name
                     FROM tasks t
                     LEFT JOIN colonies c ON c.id = t.colony_id
                     LEFT JOIN apiaries a ON a.id = t.apiary_id
@@ -176,7 +176,7 @@ function entity_select(string $name, array $def): string
             return "SELECT q.*, c.name AS colony_name FROM queens q
                     LEFT JOIN colonies c ON c.id = q.colony_id";
         default:
-            return "SELECT x.*, c.name AS colony_name, a.name AS apiary_name, u.username AS user_name
+            return "SELECT x.*, c.name AS colony_name, a.name AS apiary_name, COALESCE(NULLIF(u.full_name, ''), u.username) AS user_name
                     FROM {$t} x
                     LEFT JOIN colonies c ON c.id = x.colony_id
                     LEFT JOIN apiaries a ON a.id = c.apiary_id

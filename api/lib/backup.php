@@ -293,12 +293,12 @@ function handle_backup_delete(): void
     ok(['deleted' => true]);
 }
 
-/** GET download: api/index.php?r=backup/download&file=...&csrf=... */
+/** POST api/index.php?r=backup/download with {"file": "..."}; streams the file. */
 function handle_backup_download(): void
 {
     require_role('admin');
     require_csrf();
-    $file = backup_safe_name((string)($_GET['file'] ?? ''));
+    $file = backup_safe_name((string)param('file', ''));
     $path = backup_dir() . '/' . $file;
     if (!is_file($path)) {
         fail('backup_not_found', 404);
@@ -310,7 +310,7 @@ function handle_backup_download(): void
     exit;
 }
 
-/** GET download: api/index.php?r=backup/sql&csrf=... */
+/** POST api/index.php?r=backup/sql; streams a portable dump. */
 function handle_backup_sql(): void
 {
     require_role('admin');
