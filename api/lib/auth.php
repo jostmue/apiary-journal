@@ -94,20 +94,37 @@ function user_public(array $row): array
     ];
 }
 
-/** Failed attempts within this window lock the account name / address. */
-const LOGIN_MAX_ATTEMPTS  = 5;
+/**
+ * Failed attempts within this window block further tries.
+ *
+ * The account name is counted strictly. The address is only a backstop with a
+ * far higher threshold, because behind the DSM reverse proxy every request
+ * arrives from the same address - a strict per-address rule would let five bad
+ * logins lock out every user of the installation.
+ */
+const LOGIN_MAX_ATTEMPTS   = 5;
+const LOGIN_MAX_PER_ADDRESS = 50;
 const LOGIN_WINDOW_MINUTES = 15;
 
-function login_is_locked(string $username): bool
+function login_failures(string $column, string $value): int
 {
     $stmt = db()->prepare(
         "SELECT COUNT(*) FROM activity_log
          WHERE action = 'login_failed'
            AND created_at > (NOW() - INTERVAL " . LOGIN_WINDOW_MINUTES . " MINUTE)
-           AND (detail = ? OR ip = ?)"
+           AND {$column} = ?"
     );
-    $stmt->execute([$username, $_SERVER['REMOTE_ADDR'] ?? '']);
-    return (int)$stmt->fetchColumn() >= LOGIN_MAX_ATTEMPTS;
+    $stmt->execute([$value]);
+    return (int)$stmt->fetchColumn();
+}
+
+function login_is_locked(string $username): bool
+{
+    if (login_failures('detail', $username) >= LOGIN_MAX_ATTEMPTS) {
+        return true;
+    }
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    return $ip !== '' && login_failures('ip', $ip) >= LOGIN_MAX_PER_ADDRESS;
 }
 
 function do_login(string $username, string $password): void

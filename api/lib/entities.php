@@ -41,7 +41,8 @@ function entities(): array
             'order'  => '{a}.is_current DESC, {a}.introduced_on DESC, {a}.id DESC',
             'fields' => [
                 'colony_id' => 'int', 'name' => 'string', 'race' => 'string',
-                'birth_year' => 'int', 'marking_color' => 'string',
+                'birth_year' => 'int',
+                'marking_color' => 'enum:white,yellow,red,green,blue,unmarked',
                 'mating_type' => 'string', 'breeder' => 'string', 'origin' => 'string',
                 'introduced_on' => 'date', 'removed_on' => 'date',
                 'is_clipped' => 'bool', 'is_current' => 'bool', 'notes' => 'string',
@@ -274,9 +275,14 @@ function handle_save(string $name): void
         log_activity('create', $name, $id);
     }
 
-    // A task that gets marked done remembers when that happened.
-    if ($name === 'tasks' && ($data['status'] ?? '') === 'done' && empty($data['done_at'])) {
-        db()->prepare('UPDATE tasks SET done_at = NOW() WHERE id = ? AND done_at IS NULL')->execute([$id]);
+    // A task remembers when it was completed - and forgets again when it is
+    // reopened, so a second completion does not keep the first date.
+    if ($name === 'tasks' && array_key_exists('status', $data)) {
+        if ($data['status'] === 'done' && empty($data['done_at'])) {
+            db()->prepare('UPDATE tasks SET done_at = NOW() WHERE id = ? AND done_at IS NULL')->execute([$id]);
+        } elseif ($data['status'] !== 'done') {
+            db()->prepare('UPDATE tasks SET done_at = NULL WHERE id = ?')->execute([$id]);
+        }
     }
 
     // A colony has exactly one current queen.

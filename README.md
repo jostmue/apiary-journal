@@ -3,9 +3,9 @@
 A self-hosted beekeeping record book for a Synology NAS. It keeps track of
 apiaries, colonies and queens, and documents everything you do at the hive:
 inspections, feedings, treatments, harvests, events and open tasks. Weather at
-the apiary is filled in automatically for every entry, the interface speaks
-German and English, and reports can be filtered down to a single colony and a
-single season.
+the apiary is filled in automatically for every inspection, the interface
+speaks German and English, and reports can be filtered down to a single colony
+and a single season.
 
 Runs on **Web Station (PHP)** and **MariaDB 10**, both from the DSM Package
 Center. No build step, no external service, no API key.
@@ -42,8 +42,8 @@ Center. No build step, no external service, no API key.
 - User management with three roles: administrator, beekeeper (write access),
   viewer (read only). Sessions, bcrypt password hashes, CSRF protection, audit
   log.
-- Automatic weather per entry from Open-Meteo, using the coordinates of the
-  apiary the colony stands on. Past entries use the weather archive, so a
+- Automatic weather per inspection from Open-Meteo, using the coordinates of
+  the apiary the colony stands on. Past entries use the weather archive, so a
   record you type in three weeks late still gets the right weather. Responses
   are cached per apiary and day.
 - Two interface languages (German, English), switchable at any time and stored
@@ -101,7 +101,7 @@ api/lib/reports.php     report engine, CSV export, dashboard figures
 api/lib/backup.php      snapshots, restore, SQL export
 api/lib/users.php       user management and profile
 db/schema.sql           database schema
-backups/                snapshot files (not served over HTTP)
+backups/                fallback snapshot folder (see Backup below)
 ```
 
 ## How the API works

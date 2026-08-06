@@ -30,26 +30,50 @@ function showError(e) {
   }
 }
 
+function localeTag() { return getLocale() === 'de' ? 'de-DE' : 'en-GB'; }
+
+/** Parse a stored value as local time; a bare date keeps its calendar day. */
+function parseLocal(v) {
+  const s = String(v);
+  // new Date("2025-05-01") means UTC midnight, which renders as 30 April in
+  // any timezone west of Greenwich. A bare date must stay a calendar date.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(s.replace(' ', 'T'));
+}
+
 function fmtDate(v) {
   if (!v) return '';
-  const d = new Date(String(v).replace(' ', 'T'));
+  const d = parseLocal(v);
   if (isNaN(d)) return String(v).slice(0, 10);
-  return d.toLocaleDateString(getLocale() === 'de' ? 'de-DE' : 'en-GB');
+  return d.toLocaleDateString(localeTag());
+}
+
+/**
+ * Timestamps the server generates - last sign-in, audit log, backup times -
+ * are UTC, because api/index.php pins PHP and MariaDB to UTC. Values the user
+ * typed into a form are stored as entered and must not be shifted.
+ */
+function fmtServerDateTime(v) {
+  if (!v) return '';
+  const d = new Date(String(v).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return String(v);
+  return d.toLocaleDateString(localeTag()) + ' '
+       + d.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' });
 }
 
 function fmtTime(v) {
   if (!v) return '';
-  const d = new Date(String(v).replace(' ', 'T'));
+  const d = parseLocal(v);
   if (isNaN(d)) return '';
-  return d.toLocaleTimeString(getLocale() === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' });
 }
 
 function fmtDateTime(v) {
   if (!v) return '';
-  const d = new Date(String(v).replace(' ', 'T'));
+  const d = parseLocal(v);
   if (isNaN(d)) return String(v);
-  const loc = getLocale() === 'de' ? 'de-DE' : 'en-GB';
-  return d.toLocaleDateString(loc) + ' ' + d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString(localeTag()) + ' '
+       + d.toLocaleTimeString(localeTag(), { hour: '2-digit', minute: '2-digit' });
 }
 
 function toInputValue(v, type) {
@@ -519,7 +543,7 @@ async function viewColonies() {
 
 function colonyCard(c) {
   const color = c.queen_color && c.queen_color !== 'unmarked' ? c.queen_color : queenColorForYear(c.queen_year);
-  return `<article class="colony ${color ? 'colony--' + color : ''}" data-colony="${c.id}" tabindex="0">
+  return `<article class="colony ${color ? 'colony--' + esc(color) : ''}" data-colony="${c.id}" tabindex="0">
     <div class="colony__head">
       <div style="flex:1">
         <div class="colony__name">${esc(c.name)}</div>
@@ -1470,7 +1494,7 @@ async function viewUsers() {
         <td>${esc(optLabel('role', u.role))}</td>
         <td>${esc(LOCALES[u.locale] || u.locale)}</td>
         <td>${Number(u.is_active) ? esc(t('common.yes')) : esc(t('common.no'))}</td>
-        <td class="date">${u.last_login_at ? esc(fmtDateTime(u.last_login_at)) : esc(t('users.never'))}</td>
+        <td class="date">${u.last_login_at ? esc(fmtServerDateTime(u.last_login_at)) : esc(t('users.never'))}</td>
         <td><div class="row-actions">
           <button class="btn btn--sm" data-edit-user="${u.id}">${esc(t('common.edit'))}</button>
           <button class="btn btn--sm btn--danger" data-del-user="${u.id}">${esc(t('common.delete'))}</button>
@@ -1543,7 +1567,7 @@ async function viewBackup() {
          <thead><tr><th>${esc(t('backup.created_at'))}</th><th>${esc(t('field.name'))}</th>
            <th class="num">${esc(t('backup.size'))}</th><th></th></tr></thead>
          <tbody>${data.files.map(f => `<tr>
-           <td class="date">${esc(fmtDateTime(f.created))}</td>
+           <td class="date">${esc(fmtServerDateTime(f.created))}</td>
            <td class="mono">${esc(f.name)}</td>
            <td class="num">${(f.size / 1024).toFixed(1)} KB</td>
            <td><div class="row-actions">
@@ -1616,7 +1640,7 @@ async function viewLog() {
         <th>${esc(t('log.action'))}</th><th>${esc(t('log.entity'))}</th>
         <th>${esc(t('log.detail'))}</th><th>IP</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
-        <td class="date">${esc(fmtDateTime(r.created_at))}</td>
+        <td class="date">${esc(fmtServerDateTime(r.created_at))}</td>
         <td>${esc(r.username || '')}</td>
         <td class="mono">${esc(r.action)}</td>
         <td>${esc(r.entity || '')}${r.entity_id ? ' #' + esc(r.entity_id) : ''}</td>

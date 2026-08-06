@@ -23,7 +23,13 @@ function backup_dir(): string
     if (!is_dir($dir)) {
         @mkdir($dir, 0770, true);
     }
-    if (!is_dir($dir) || !is_writable($dir)) {
+    // Two very different problems, so say which one it is: the folder could
+    // not be created at all, or it exists but the web server user cannot
+    // write to it. On DSM the second one is usually a share permission.
+    if (!is_dir($dir)) {
+        fail('backup_dir_missing', 500, $dir);
+    }
+    if (!is_writable($dir)) {
         fail('backup_dir_not_writable', 500, $dir);
     }
     $dir = rtrim($dir, '/');
@@ -46,6 +52,21 @@ function backup_safe_name(string $name): string
         fail('invalid_filename');
     }
     return $name;
+}
+
+/** The column names a table really has, cached per request. */
+function table_columns(PDO $pdo, string $table): array
+{
+    static $cache = [];
+    if (!isset($cache[$table])) {
+        $stmt = $pdo->prepare(
+            'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?'
+        );
+        $stmt->execute([$table]);
+        $cache[$table] = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+    return $cache[$table];
 }
 
 function backup_collect(): array
@@ -155,20 +176,33 @@ function backup_restore(array $data, bool $keepUsers): void
             if (!$rows) {
                 continue;
             }
-            $cols = array_keys($rows[0]);
-            $sql  = "INSERT INTO {$t} (" . implode(',', $cols) . ') VALUES ('
+            // Column names are part of the uploaded snapshot and would end up
+            // in the SQL text verbatim, so they are matched against the real
+            // table definition and anything unknown is dropped.
+            $known = table_columns($pdo, $t);
+            $cols  = array_values(array_intersect(array_keys($rows[0]), $known));
+            if (!$cols) {
+                continue;
+            }
+            $sql  = "INSERT INTO `{$t}` (`" . implode('`,`', $cols) . '`) VALUES ('
                   . implode(',', array_fill(0, count($cols), '?')) . ')';
             $stmt = $pdo->prepare($sql);
             foreach ($rows as $row) {
-                $stmt->execute(array_values($row));
+                $values = [];
+                foreach ($cols as $c) {
+                    $values[] = $row[$c] ?? null;
+                }
+                $stmt->execute($values);
             }
         }
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
-        error_log('[beekeeping] restore failed: ' . $e->getMessage());
-        fail('restore_failed', 500, $e->getMessage());
+        error_log('[apiary-journal] restore failed: ' . $e->getMessage());
+        // The database message names tables, columns and constraints; it goes
+        // to the log, not to the browser.
+        fail('restore_failed', 500);
     }
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     log_activity('backup_restore', 'backup');

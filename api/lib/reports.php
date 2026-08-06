@@ -10,6 +10,14 @@
 
 declare(strict_types=1);
 
+/**
+ * Feed is summed per physical unit; grams and millilitres are folded into the
+ * kilogram and litre totals so a feeding entered in grams is not silently
+ * dropped. 'pcs' has no meaningful conversion and stays out of both.
+ */
+const FEED_SUM_KG = "SUM(CASE WHEN x.unit = 'kg' THEN x.amount WHEN x.unit = 'g'  THEN x.amount / 1000 END)";
+const FEED_SUM_L  = "SUM(CASE WHEN x.unit = 'l'  THEN x.amount WHEN x.unit = 'ml' THEN x.amount / 1000 END)";
+
 function report_sources(): array
 {
     return [
@@ -214,6 +222,15 @@ function report_summary(array $filter): array
     $args  = [];
     if (!empty($filter['colony_id'])) { $where[] = 'x.colony_id = ?'; $args[] = (int)$filter['colony_id']; }
     if (!empty($filter['apiary_id'])) { $where[] = 'c.apiary_id = ?'; $args[] = (int)$filter['apiary_id']; }
+    // The key figures have to sit under the same filter as the rows they
+    // summarise, otherwise picking a user or a search term changes the list
+    // while the totals silently keep counting everything.
+    if (!empty($filter['user_id'])) { $where[] = 'x.user_id = ?'; $args[] = (int)$filter['user_id']; }
+    if (!empty($filter['search'])) {
+        $where[] = '(x.notes LIKE ? OR c.name LIKE ?)';
+        $args[]  = '%' . $filter['search'] . '%';
+        $args[]  = '%' . $filter['search'] . '%';
+    }
     $clause = $where ? ' AND ' . implode(' AND ', $where) : '';
 
     $range = [];
@@ -240,8 +257,8 @@ function report_summary(array $filter): array
 
     $insp    = $only('inspections', 'inspections', 'inspected_at', 'COUNT(*) AS n, AVG(x.varroa_count) AS varroa_avg, MAX(x.varroa_count) AS varroa_max');
     $feed    = $only('feedings', 'feedings', 'fed_at', "COUNT(*) AS n,
-        SUM(CASE WHEN x.unit = 'kg' THEN x.amount END) AS total_kg,
-        SUM(CASE WHEN x.unit = 'l'  THEN x.amount END) AS total_l");
+        " . FEED_SUM_KG . " AS total_kg,
+        " . FEED_SUM_L . " AS total_l");
     $treat   = $only('treatments', 'treatments', 'started_at', 'COUNT(*) AS n');
     $harvest = $only('harvests', 'harvests', 'harvested_at', 'COUNT(*) AS n, SUM(x.net_kg) AS total_kg, AVG(x.water_content) AS water_avg');
     $events  = $only('events', 'events', 'event_at', 'COUNT(*) AS n');
@@ -347,8 +364,8 @@ function handle_stats(): void
         'harvest_year_kg'   => round((float)$one("SELECT COALESCE(SUM(net_kg),0) FROM harvests WHERE YEAR(harvested_at) = {$year}"), 2),
         // Solid and liquid feed are counted apart: adding kilograms to litres
         // would produce a number that means nothing.
-        'feed_year_kg'      => round((float)$one("SELECT COALESCE(SUM(amount),0) FROM feedings WHERE YEAR(fed_at) = {$year} AND unit = 'kg'"), 2),
-        'feed_year_l'       => round((float)$one("SELECT COALESCE(SUM(amount),0) FROM feedings WHERE YEAR(fed_at) = {$year} AND unit = 'l'"), 2),
+        'feed_year_kg'      => round((float)$one("SELECT COALESCE(" . str_replace('x.', '', FEED_SUM_KG) . ",0) FROM feedings WHERE YEAR(fed_at) = {$year}"), 2),
+        'feed_year_l'       => round((float)$one("SELECT COALESCE(" . str_replace('x.', '', FEED_SUM_L) . ",0) FROM feedings WHERE YEAR(fed_at) = {$year}"), 2),
         'tasks_open'        => (int)$one("SELECT COUNT(*) FROM tasks WHERE status = 'open'"),
         'tasks_overdue'     => (int)$one("SELECT COUNT(*) FROM tasks WHERE status = 'open' AND due_date < CURDATE()"),
         'year'              => (int)$year,
@@ -363,6 +380,11 @@ function handle_stats(): void
 function handle_recent(): void
 {
     require_login();
-    $rows = report_query_detail(['date_from' => date('Y-m-d', strtotime('-60 days'))]);
+    $rows = report_query_detail([
+        'date_from' => date('Y-m-d', strtotime('-60 days')),
+        // Without an upper bound a task due next season sits permanently at
+        // the top of a list that claims to show recent activity.
+        'date_to'   => date('Y-m-d'),
+    ]);
     ok(array_slice($rows, 0, 40));
 }

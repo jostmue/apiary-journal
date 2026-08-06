@@ -17,24 +17,23 @@ $errors  = [];
 $notices = [];
 $done    = false;
 
-// Refuse to run again once the app is installed and has users.
+/**
+ * Refuse to run once a configuration exists - unconditionally.
+ *
+ * Deciding this by "are there users in the database" would let anyone re-run
+ * the installer whenever the database happens to be unreachable, and point a
+ * fresh config.php at a database of their choosing.
+ */
 if (is_file($configFile)) {
-    $cfg = require $configFile;
-    try {
-        $dsn = "mysql:host={$cfg['db']['host']};port={$cfg['db']['port']};dbname={$cfg['db']['name']};charset=utf8mb4";
-        $pdo = new PDO($dsn, $cfg['db']['user'], $cfg['db']['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-        $n = (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
-        if ($n > 0) {
-            http_response_code(403);
-            echo '<!doctype html><meta charset="utf-8"><title>Already installed</title>'
-               . '<body style="font:16px system-ui;padding:2rem;max-width:40rem">'
-               . '<h1>Already installed</h1><p>The journal is set up and has ' . $n . ' user account(s). '
-               . 'Delete <code>install.php</code> from the web folder and open <a href="index.html">the app</a>.</p>';
-            exit;
-        }
-    } catch (Throwable $e) {
-        $notices[] = 'A config.php exists but the database is not reachable yet: ' . htmlspecialchars($e->getMessage());
-    }
+    http_response_code(403);
+    echo '<!doctype html><meta charset="utf-8"><title>Already installed</title>'
+       . '<body style="font:16px system-ui;padding:2rem;max-width:40rem">'
+       . '<h1>Already installed</h1>'
+       . '<p>A configuration already exists at <code>api/config.php</code>, so setup will not run again.</p>'
+       . '<p>Delete <code>install.php</code> from the web folder and open <a href="index.html">the journal</a>.</p>'
+       . '<p style="color:#6E6F60">Need to start over? Remove <code>api/config.php</code> first, '
+       . 'then reload this page.</p>';
+    exit;
 }
 
 $checks = [

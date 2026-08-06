@@ -140,6 +140,9 @@ function weather_for(float $lat, float $lon, string $datetime): ?array
 function handle_weather(): void
 {
     require_login();
+    // Both routes reach out to the internet and write to the weather cache,
+    // so they must not be triggerable by a cross-site GET.
+    require_csrf();
     $at = (string)param('at', date('Y-m-d H:i:s'));
     $at = str_replace('T', ' ', $at);
     if (strlen($at) === 10) {
@@ -222,6 +225,7 @@ function geo_add_elevation(array $hits): array
 function handle_geo_search(): void
 {
     require_login();
+    require_csrf();
     $g = geo_config();
     $q = trim((string)param('q', ''));
     if ($q === '') {

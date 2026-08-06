@@ -120,6 +120,13 @@ function clean_value($value, string $type)
             $v = str_replace('T', ' ', (string)$value);
             return strlen($v) === 16 ? $v . ':00' : substr($v, 0, 19);
         default:
+            // "enum:a,b,c" accepts nothing but the listed values. Used for
+            // fields whose value reaches an HTML attribute in the browser,
+            // where a free string would be one missing escape away from XSS.
+            if (strncmp($type, 'enum:', 5) === 0) {
+                $allowed = explode(',', substr($type, 5));
+                return in_array((string)$value, $allowed, true) ? (string)$value : null;
+            }
             return (string)$value;
     }
 }
