@@ -122,6 +122,9 @@ anything not listed there cannot be written, whatever the client sends.
 3. Add it to the form in `assets/js/schema.js`, and to `COLUMNS` if it should
    appear in the table.
 4. Add `field.<column>` to both language blocks in `assets/js/i18n.js`.
+5. Bump the `?v=` marker on the asset URLs in `index.html`. Without it a
+   browser can mix a fresh `app.js` with a cached `schema.js`, which fails
+   with "… is not defined".
 
 ## Backup
 
