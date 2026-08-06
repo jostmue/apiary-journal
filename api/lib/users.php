@@ -7,23 +7,41 @@
 
 declare(strict_types=1);
 
+/**
+ * Administrators get the full list for account management. Everyone else sees
+ * only themselves and the people they share a group with - enough to filter a
+ * report or assign a task, and no directory of everyone who has an account
+ * here, which is what privacy between strangers requires.
+ */
 function handle_users_list(): void
 {
     $me = require_login();
-    $rows = db()->query(
-        'SELECT id, username, full_name, email, role, locale, is_active, last_login_at, created_at
-         FROM users ORDER BY username'
-    )->fetchAll();
 
-    if ($me['role'] !== 'admin') {
-        // Non-admins only need names for filters and assignments.
-        $rows = array_map(fn($r) => [
-            'id' => (int)$r['id'], 'username' => $r['username'],
-            'full_name' => $r['full_name'], 'role' => $r['role'],
-            'is_active' => (int)$r['is_active'],
-        ], $rows);
+    if (($me['role'] ?? '') === 'admin') {
+        ok(db()->query(
+            'SELECT id, username, full_name, email, role, locale, is_active, last_login_at, created_at
+             FROM users ORDER BY username'
+        )->fetchAll());
     }
-    ok($rows);
+
+    $groups = my_group_ids();
+    $sql = "SELECT DISTINCT u.id, u.username, u.full_name, u.is_active
+            FROM users u
+            LEFT JOIN group_members gm ON gm.user_id = u.id"
+         . (
+            $groups
+              ? ' WHERE u.id = ? OR gm.group_id IN (' . implode(',', $groups) . ')'
+              : ' WHERE u.id = ?'
+           )
+         . ' ORDER BY u.username';
+    $stmt = db()->prepare($sql);
+    $stmt->execute([(int)$me['id']]);
+    ok(array_map(fn($r) => [
+        'id'        => (int)$r['id'],
+        'username'  => $r['username'],
+        'full_name' => $r['full_name'],
+        'is_active' => (int)$r['is_active'],
+    ], $stmt->fetchAll()));
 }
 
 function handle_users_save(): void

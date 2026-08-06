@@ -15,7 +15,7 @@
 
 declare(strict_types=1);
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Version 1 is the schema db/schema.sql creates. An installation from before
@@ -101,7 +101,133 @@ function migrations(): array
                 $pdo->exec('ALTER TABLE users ADD UNIQUE KEY uq_users_email (email)');
             }
         },
+
+        3 => function (PDO $pdo): void {
+            migrate_add_groups($pdo);
+        },
     ];
+}
+
+/**
+ * Version 3: ownership and groups.
+ *
+ * Apiaries and colonies gain an owner and an optional group; everything below
+ * a colony inherits its visibility from there. Existing data is moved into one
+ * group holding every existing account, so an installation behaves exactly as
+ * it did before the upgrade and can be tightened afterwards.
+ */
+function migrate_add_groups(PDO $pdo): void
+{
+    if (!table_exists($pdo, 'user_groups')) {
+        $pdo->exec(
+            "CREATE TABLE user_groups (
+               id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+               name        VARCHAR(120) NOT NULL,
+               description VARCHAR(255) NULL,
+               created_by  INT UNSIGNED NULL,
+               created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               PRIMARY KEY (id),
+               CONSTRAINT fk_group_creator FOREIGN KEY (created_by)
+                 REFERENCES users(id) ON DELETE SET NULL
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+    if (!table_exists($pdo, 'group_members')) {
+        $pdo->exec(
+            "CREATE TABLE group_members (
+               group_id  INT UNSIGNED NOT NULL,
+               user_id   INT UNSIGNED NOT NULL,
+               role      ENUM('owner','member','viewer') NOT NULL DEFAULT 'member',
+               joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               PRIMARY KEY (group_id, user_id),
+               KEY ix_gm_user (user_id),
+               CONSTRAINT fk_gm_group FOREIGN KEY (group_id)
+                 REFERENCES user_groups(id) ON DELETE CASCADE,
+               CONSTRAINT fk_gm_user FOREIGN KEY (user_id)
+                 REFERENCES users(id) ON DELETE CASCADE
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+    if (!table_exists($pdo, 'group_invites')) {
+        $pdo->exec(
+            "CREATE TABLE group_invites (
+               id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+               group_id    INT UNSIGNED NOT NULL,
+               email       VARCHAR(160) NOT NULL,
+               role        ENUM('owner','member','viewer') NOT NULL DEFAULT 'member',
+               token_hash  CHAR(64)     NOT NULL,
+               invited_by  INT UNSIGNED NULL,
+               expires_at  DATETIME     NOT NULL,
+               accepted_at DATETIME     NULL,
+               created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               PRIMARY KEY (id),
+               UNIQUE KEY uq_invite_token (token_hash),
+               KEY ix_invite_group (group_id),
+               CONSTRAINT fk_invite_group FOREIGN KEY (group_id)
+                 REFERENCES user_groups(id) ON DELETE CASCADE,
+               CONSTRAINT fk_invite_user FOREIGN KEY (invited_by)
+                 REFERENCES users(id) ON DELETE SET NULL
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+
+    foreach (['apiaries', 'colonies'] as $table) {
+        if (!column_exists($pdo, $table, 'owner_id')) {
+            $pdo->exec("ALTER TABLE {$table} ADD COLUMN owner_id INT UNSIGNED NULL AFTER id");
+            $pdo->exec("ALTER TABLE {$table} ADD KEY ix_{$table}_owner (owner_id)");
+            $pdo->exec(
+                "ALTER TABLE {$table} ADD CONSTRAINT fk_{$table}_owner
+                 FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL"
+            );
+        }
+        if (!column_exists($pdo, $table, 'group_id')) {
+            $pdo->exec("ALTER TABLE {$table} ADD COLUMN group_id INT UNSIGNED NULL AFTER owner_id");
+            $pdo->exec("ALTER TABLE {$table} ADD KEY ix_{$table}_group (group_id)");
+            $pdo->exec(
+                "ALTER TABLE {$table} ADD CONSTRAINT fk_{$table}_group
+                 FOREIGN KEY (group_id) REFERENCES user_groups(id) ON DELETE SET NULL"
+            );
+        }
+        // Whoever entered a record keeps it; anything orphaned goes to the
+        // oldest administrator so that nothing ends up without an owner.
+        $pdo->exec("UPDATE {$table} SET owner_id = created_by WHERE owner_id IS NULL");
+        $pdo->exec(
+            "UPDATE {$table} SET owner_id =
+               (SELECT id FROM (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1) x)
+             WHERE owner_id IS NULL"
+        );
+    }
+
+    // Nothing to share out if the installation is still empty.
+    $users = (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    $rows  = (int)$pdo->query('SELECT COUNT(*) FROM apiaries')->fetchColumn();
+    if ($users === 0 || $rows === 0) {
+        return;
+    }
+
+    // One group with everyone in it, so the upgrade changes nothing that is
+    // visible to the people using it. Splitting things off is a decision for
+    // afterwards, not something an update should make on its own.
+    $existing = $pdo->query('SELECT id FROM user_groups LIMIT 1')->fetchColumn();
+    if ($existing !== false) {
+        return;
+    }
+    $admin = $pdo->query("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")->fetchColumn();
+    $pdo->prepare(
+        'INSERT INTO user_groups (name, description, created_by) VALUES (?, ?, ?)'
+    )->execute([
+        'Alle',
+        'Automatically created during the upgrade so that existing records stay visible to everyone who could already see them.',
+        $admin !== false ? $admin : null,
+    ]);
+    $groupId = (int)$pdo->lastInsertId();
+
+    $pdo->exec(
+        "INSERT INTO group_members (group_id, user_id, role)
+         SELECT {$groupId}, id, CASE WHEN role = 'admin' THEN 'owner' ELSE 'member' END FROM users"
+    );
+    $pdo->exec("UPDATE apiaries SET group_id = {$groupId} WHERE group_id IS NULL");
+    $pdo->exec("UPDATE colonies SET group_id = {$groupId} WHERE group_id IS NULL");
 }
 
 function index_exists(PDO $pdo, string $table, string $index): bool

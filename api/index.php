@@ -17,6 +17,7 @@ date_default_timezone_set('UTC');
 require __DIR__ . '/lib/core.php';
 require __DIR__ . '/lib/migrate.php';
 require __DIR__ . '/lib/auth.php';
+require __DIR__ . '/lib/access.php';
 require __DIR__ . '/lib/entities.php';
 require __DIR__ . '/lib/weather.php';
 require __DIR__ . '/lib/reports.php';

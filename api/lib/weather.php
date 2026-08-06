@@ -156,9 +156,13 @@ function handle_weather(): void
         $colonyId = param_int('colony_id');
         $apiaryId = param_int('apiary_id');
         if ($colonyId) {
+            // Without this check the route would hand out the coordinates of
+            // any apiary to anyone who guesses a colony id.
+            assert_can_read('colonies', $colonyId);
             $stmt = db()->prepare('SELECT a.latitude, a.longitude FROM colonies c JOIN apiaries a ON a.id = c.apiary_id WHERE c.id = ?');
             $stmt->execute([$colonyId]);
         } elseif ($apiaryId) {
+            assert_can_read('apiaries', $apiaryId);
             $stmt = db()->prepare('SELECT latitude, longitude FROM apiaries WHERE id = ?');
             $stmt->execute([$apiaryId]);
         } else {

@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../api/lib/core.php';
 require __DIR__ . '/../api/lib/mail.php';
+require __DIR__ . '/../api/lib/access.php';
 
 $passed = 0;
 $failed = 0;
@@ -104,6 +105,50 @@ check('umlauts are base64 encoded',
 check('newline cannot start a header',
     mail_encode_header("Subject\r\nBcc: someone@example.org"),
     'Subject  Bcc: someone@example.org');
+
+// --- access rules -----------------------------------------------------------
+// Membership maps used below: Anna owns group 1 and only reads group 2, Bert
+// is a plain member of group 3 and belongs to nothing else.
+$anna = [1 => 'owner', 2 => 'viewer'];
+$bert = [3 => 'member'];
+$none = [];
+$annaId = 10;
+$bertId = 20;
+
+// Your own records are yours whatever any group says.
+check('owner may edit own private row',        can_write_with($annaId, $none, $annaId, null), true);
+check('stranger may not edit private row',     can_write_with($bertId, $none, $annaId, null), false);
+check('ownerless private row is nobody\'s',    can_write_with($annaId, $none, null, null), false);
+
+// Group membership grants writing, but only with a writing role.
+check('group member may edit shared row',      can_write_with($bertId, $bert, $annaId, 3), true);
+check('group owner may edit shared row',       can_write_with($annaId, $anna, $bertId, 1), true);
+check('viewer may not edit shared row',        can_write_with($annaId, $anna, $bertId, 2), false);
+check('outsider may not edit shared row',      can_write_with($bertId, $bert, $annaId, 1), false);
+
+// Reading is wider than writing: a viewer sees but cannot change.
+check('viewer may read shared row',            can_read_with($annaId, $anna, $bertId, 2), true);
+check('outsider may not read shared row',      can_read_with($bertId, $bert, $annaId, 2), false);
+check('owner reads own private row',           can_read_with($bertId, $none, $bertId, null), true);
+check('private row stays private',             can_read_with($annaId, $anna, $bertId, null), false);
+
+// A signed-out request has id 0 and must not match rows with no owner.
+check('anonymous writes nothing',              can_write_with(0, $none, null, null), false);
+check('anonymous reads nothing',               can_read_with(0, $none, null, null), false);
+
+// Where a new record may be put.
+check('keeping it private is always allowed',  can_use_group_with($bert, null), true);
+check('may use a group one writes in',         can_use_group_with($bert, 3), true);
+check('may not use a group one only reads',    can_use_group_with($anna, 2), false);
+check('may not use a foreign group',           can_use_group_with($bert, 1), false);
+
+// The SQL fragment that filters every listing.
+check('no groups: ownership only',
+    owned_sql_for('c', 7, []), '(c.owner_id = 7)');
+check('with groups: ownership or group',
+    owned_sql_for('c', 7, [2, 5]), '(c.owner_id = 7 OR c.group_id IN (2,5))');
+check('group ids are forced to integers',
+    owned_sql_for('a', 7, ['3; DROP TABLE users']), '(a.owner_id = 7 OR a.group_id IN (3))');
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

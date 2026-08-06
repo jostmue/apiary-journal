@@ -48,7 +48,8 @@ function report_sources(): array
 /** The WHERE clause shared by the condensed and the detailed query. */
 function report_filters(string $type, array $s, array $filter): array
 {
-    $where = [];
+    // Same rule as everywhere else; the report tables are all aliased x.
+    $where = [visible_sql($type, 'x')];
     $args  = [];
 
     if (!empty($filter['colony_id'])) {
@@ -180,8 +181,14 @@ function report_summary(array $filter): array
     if (!empty($filter['date_from'])) { $range[] = 'DATE(x.%s) >= ?'; $rargs[] = substr((string)$filter['date_from'], 0, 10); }
     if (!empty($filter['date_to']))   { $range[] = 'DATE(x.%s) <= ?'; $rargs[] = substr((string)$filter['date_to'], 0, 10); }
 
-    $run = function (string $table, string $dateCol, string $select) use ($clause, $args, $range, $rargs) {
-        $sql = "SELECT {$select} FROM {$table} x LEFT JOIN colonies c ON c.id = x.colony_id WHERE 1=1{$clause}";
+    $run = function (string $type, string $table, string $dateCol, string $select) use ($clause, $args, $range, $rargs) {
+        // The apiary is joined even where the figures do not use it, because
+        // the visibility rule for events refers to it.
+        $sql = "SELECT {$select} FROM {$table} x
+                LEFT JOIN colonies c ON c.id = x.colony_id
+                LEFT JOIN apiaries a ON a.id = COALESCE(c.apiary_id, "
+             . (in_array($type, ['events', 'tasks'], true) ? 'x.apiary_id' : 'NULL') . ")
+                WHERE " . visible_sql($type, 'x') . $clause;
         foreach ($range as $r) {
             $sql .= ' AND ' . sprintf($r, $dateCol);
         }
@@ -194,7 +201,7 @@ function report_summary(array $filter): array
     // the user deselected stays null so the interface can drop the tile.
     $types = report_types($filter);
     $only  = function (string $type, string $table, string $dateCol, string $select) use ($types, $run) {
-        return in_array($type, $types, true) ? $run($table, $dateCol, $select) : null;
+        return in_array($type, $types, true) ? $run($type, $table, $dateCol, $select) : null;
     };
 
     $insp    = $only('inspections', 'inspections', 'inspected_at', 'COUNT(*) AS n, AVG(x.varroa_count) AS varroa_avg, MAX(x.varroa_count) AS varroa_max');
@@ -249,19 +256,35 @@ function handle_stats(): void
         return $row ? array_values($row)[0] : 0;
     };
 
+    // Every figure counts only what the user may see, so the dashboard cannot
+    // become a way to learn how many colonies somebody else keeps.
+    $colonies  = 'FROM colonies c WHERE ' . visible_sql('colonies');
+    $viaColony = function (string $table, string $type) {
+        return "FROM {$table} x JOIN colonies c ON c.id = x.colony_id WHERE "
+             . visible_sql($type, 'x');
+    };
+    $tasks = 'FROM tasks t
+              LEFT JOIN colonies c ON c.id = t.colony_id
+              LEFT JOIN apiaries a ON a.id = COALESCE(c.apiary_id, t.apiary_id)
+              WHERE ' . visible_sql('tasks', 't');
+
     $year = date('Y');
     ok([
-        'apiaries'          => (int)$one('SELECT COUNT(*) FROM apiaries WHERE is_active = 1'),
-        'colonies_active'   => (int)$one("SELECT COUNT(*) FROM colonies WHERE status = 'active'"),
-        'colonies_total'    => (int)$one('SELECT COUNT(*) FROM colonies'),
-        'inspections_year'  => (int)$one("SELECT COUNT(*) FROM inspections WHERE YEAR(inspected_at) = {$year}"),
-        'harvest_year_kg'   => round((float)$one("SELECT COALESCE(SUM(net_kg),0) FROM harvests WHERE YEAR(harvested_at) = {$year}"), 2),
+        'apiaries'          => (int)$one('SELECT COUNT(*) FROM apiaries a WHERE a.is_active = 1 AND ' . visible_sql('apiaries')),
+        'colonies_active'   => (int)$one("SELECT COUNT(*) {$colonies} AND c.status = 'active'"),
+        'colonies_total'    => (int)$one("SELECT COUNT(*) {$colonies}"),
+        'inspections_year'  => (int)$one('SELECT COUNT(*) ' . $viaColony('inspections', 'inspections')
+                               . " AND YEAR(x.inspected_at) = {$year}"),
+        'harvest_year_kg'   => round((float)$one('SELECT COALESCE(SUM(x.net_kg),0) ' . $viaColony('harvests', 'harvests')
+                               . " AND YEAR(x.harvested_at) = {$year}"), 2),
         // Solid and liquid feed are counted apart: adding kilograms to litres
         // would produce a number that means nothing.
-        'feed_year_kg'      => round((float)$one("SELECT COALESCE(" . str_replace('x.', '', FEED_SUM_KG) . ",0) FROM feedings WHERE YEAR(fed_at) = {$year}"), 2),
-        'feed_year_l'       => round((float)$one("SELECT COALESCE(" . str_replace('x.', '', FEED_SUM_L) . ",0) FROM feedings WHERE YEAR(fed_at) = {$year}"), 2),
-        'tasks_open'        => (int)$one("SELECT COUNT(*) FROM tasks WHERE status = 'open'"),
-        'tasks_overdue'     => (int)$one("SELECT COUNT(*) FROM tasks WHERE status = 'open' AND due_date < CURDATE()"),
+        'feed_year_kg'      => round((float)$one('SELECT COALESCE(' . FEED_SUM_KG . ',0) ' . $viaColony('feedings', 'feedings')
+                               . " AND YEAR(x.fed_at) = {$year}"), 2),
+        'feed_year_l'       => round((float)$one('SELECT COALESCE(' . FEED_SUM_L . ',0) ' . $viaColony('feedings', 'feedings')
+                               . " AND YEAR(x.fed_at) = {$year}"), 2),
+        'tasks_open'        => (int)$one("SELECT COUNT(*) {$tasks} AND t.status = 'open'"),
+        'tasks_overdue'     => (int)$one("SELECT COUNT(*) {$tasks} AND t.status = 'open' AND t.due_date < CURDATE()"),
         'year'              => (int)$year,
     ]);
 }

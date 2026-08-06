@@ -20,8 +20,12 @@ function entities(): array
                 'latitude' => 'float', 'longitude' => 'float', 'altitude' => 'int',
                 'forage_notes' => 'string', 'description' => 'string',
                 'is_active' => 'bool',
+                // Whom it is shared with. owner_id is deliberately absent:
+                // it is set from the session and never taken from a request.
+                'group_id' => 'int',
             ],
             'owner'  => 'created_by',
+            'owned'  => true,
         ],
         'colonies' => [
             'table'  => 'colonies',
@@ -32,8 +36,10 @@ function entities(): array
                 'frame_size' => 'string', 'box_count' => 'int',
                 'established_on' => 'date', 'status' => 'string',
                 'parent_colony_id' => 'int', 'notes' => 'string',
+                'group_id' => 'int',
             ],
             'owner'  => 'created_by',
+            'owned'  => true,
             'filters' => ['apiary_id' => 'int', 'status' => 'string'],
         ],
         'queens' => [
@@ -166,6 +172,15 @@ function entity_select(string $name, array $def): string
             return "SELECT a.*,
                            (SELECT COUNT(*) FROM colonies c WHERE c.apiary_id = a.id AND c.status = 'active') AS colony_count
                     FROM apiaries a";
+        case 'events':
+            // An event may name an apiary instead of a colony, so resolve the
+            // apiary from the colony first and from the event itself after.
+            return "SELECT x.*, c.name AS colony_name, a.name AS apiary_name,
+                           COALESCE(NULLIF(u.full_name, ''), u.username) AS user_name
+                    FROM events x
+                    LEFT JOIN colonies c ON c.id = x.colony_id
+                    LEFT JOIN apiaries a ON a.id = COALESCE(c.apiary_id, x.apiary_id)
+                    LEFT JOIN users u ON u.id = x.user_id";
         case 'tasks':
             return "SELECT t.*, c.name AS colony_name, a.name AS apiary_name, COALESCE(NULLIF(u.full_name, ''), u.username) AS assignee_name
                     FROM tasks t
@@ -201,7 +216,9 @@ function handle_list(string $name): void
     $def   = entity_def($name);
     $alias = entity_alias($name);
     $sql   = entity_select($name, $def);
-    $where = [];
+    // Not optional and not per entity: one rule, applied before any filter
+    // the client asked for.
+    $where = [visible_sql($name, $alias)];
     $args  = [];
 
     foreach (($def['filters'] ?? []) as $field => $type) {
@@ -239,11 +256,27 @@ function handle_list(string $name): void
 
 function handle_save(string $name): void
 {
-    $user = require_write();
+    $user = require_login();
     require_csrf();
     $def  = entity_def($name);
     $data = (array)param('record', []);
     $id   = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : 0;
+
+    // What may be changed is decided by ownership, not by a role on the
+    // account: an existing row must be one the user may edit, and a new one
+    // must go somewhere they may write to.
+    if ($id > 0) {
+        $existing = load_row($def['table'], $id);
+        if (!$existing) {
+            fail('missing_id', 404);
+        }
+        assert_can_edit($name, $existing);
+        // Moving a record elsewhere needs write access at the destination too,
+        // otherwise it could be pushed into a stranger's colony.
+        assert_can_create($name, array_merge($existing, $data));
+    } else {
+        assert_can_create($name, $data);
+    }
 
     $cols = [];
     $vals = [];
@@ -266,6 +299,11 @@ function handle_save(string $name): void
     } else {
         if (!empty($def['owner'])) {
             $cols[] = $def['owner'];
+            $vals[] = $user['id'];
+        }
+        // The owner comes from the session, never from the request.
+        if (!empty($def['owned'])) {
+            $cols[] = 'owner_id';
             $vals[] = $user['id'];
         }
         $ph   = implode(', ', array_fill(0, count($cols), '?'));
@@ -296,13 +334,19 @@ function handle_save(string $name): void
 
 function handle_delete(string $name): void
 {
-    require_write();
+    require_login();
     require_csrf();
     $def = entity_def($name);
     $id  = param_int('id', 0);
     if (!$id) {
         fail('missing_id');
     }
+    $existing = load_row($def['table'], $id);
+    if (!$existing) {
+        fail('missing_id', 404);
+    }
+    assert_can_edit($name, $existing);
+
     $stmt = db()->prepare("DELETE FROM {$def['table']} WHERE id = ?");
     $stmt->execute([$id]);
     log_activity('delete', $name, $id);
