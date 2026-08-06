@@ -193,13 +193,21 @@ table.data { width: 100%; border-collapse: collapse; font-size: .88rem; }
 table.data th {
   text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted); font-weight: 600; padding: .5rem .55rem; border-bottom: 1px solid var(--line);
-  white-space: nowrap;
+  /* Headings may wrap: a two-line "Königin gesehen" is far better than a
+     table that has to be scrolled sideways. */
+  line-height: 1.25;
 }
 table.data td { padding: .5rem .55rem; border-bottom: 1px solid #EFEDE2; vertical-align: top; }
 table.data tr:hover td { background: #FAF9F2; }
 table.data td.num, table.data th.num { text-align: right; font-family: var(--mono); }
 table.data td.date { font-family: var(--mono); white-space: nowrap; font-size: .82rem; }
-.row-actions { display: flex; gap: .25rem; justify-content: flex-end; }
+/* The time sits under its date instead of widening the column. */
+.cell-sub { display: block; color: var(--muted); font-size: .92em; }
+/* Free text is the widest thing in most tables; cap it and let it wrap. */
+table.data td.text { max-width: 22ch; white-space: normal; overflow-wrap: anywhere; }
+/* Wrapping lets the action column shrink to one button's width instead of
+   forcing both onto one line - it was the widest column in record tables. */
+.row-actions { display: flex; flex-wrap: wrap; gap: .25rem; justify-content: flex-end; }
 
 /* --- Filter bar ----------------------------------------------------------- */
 .filters {
@@ -320,10 +328,9 @@ dialog::backdrop { background: rgba(20, 24, 15, .45); }
 }
 
 /* --- Fact grid: label above value, as many columns as fit ----------------- */
-.facts {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: .7rem 1.2rem; margin: 0;
-}
+/* Flex rather than equal-width grid columns: stretched columns pushed the
+   pairs far apart on a wide card. They now sit next to each other and wrap. */
+.facts { display: flex; flex-wrap: wrap; gap: .55rem 1.5rem; margin: 0; }
 .facts > div { min-width: 0; }
 .facts dt {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
@@ -401,6 +408,9 @@ dialog::backdrop { background: rgba(20, 24, 15, .45); }
 .record__fields dt { color: var(--muted); }
 .record__fields dt::after { content: ":"; }
 .record__fields dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+/* The weather row carries a top margin for the entry form; inside a field
+   row that margin would drop it below its own label. */
+.record__fields .weather__values { margin-top: 0; }
 
 /* --- Print (reports) ------------------------------------------------------ */
 @media print {

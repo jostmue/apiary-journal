@@ -37,6 +37,13 @@ function fmtDate(v) {
   return d.toLocaleDateString(getLocale() === 'de' ? 'de-DE' : 'en-GB');
 }
 
+function fmtTime(v) {
+  if (!v) return '';
+  const d = new Date(String(v).replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  return d.toLocaleTimeString(getLocale() === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
 function fmtDateTime(v) {
   if (!v) return '';
   const d = new Date(String(v).replace(' ', 'T'));
@@ -577,7 +584,8 @@ async function renderColonyTab(entity, colonyId) {
        <div class="topbar__spacer"></div>
        ${canWrite() ? `<button class="btn btn--primary btn--sm" data-new="${entity}" data-colony-id="${colonyId}">${esc(t(entity + '.new'))}</button>` : ''}
      </div>` +
-    recordTable(entity, rows);
+    // On a colony page every row belongs to that colony already.
+    recordTable(entity, rows, ['colony_name']);
   bindNewButtons(() => renderColonyTab(entity, colonyId));
   bindRowActions(entity, rows, () => renderColonyTab(entity, colonyId));
 }
@@ -588,11 +596,19 @@ function tabLabel(key) {
 
 /* ---------------------------------------------------------- record tables */
 
-function recordTable(entity, rows) {
-  const cols = COLUMNS[entity] || [];
+/** `skip` drops columns that would repeat the same value on every row. */
+function recordTable(entity, rows, skip = []) {
+  const cols = (COLUMNS[entity] || []).filter(c => !skip.includes(c.n));
   if (!rows.length) return `<div class="card"><p class="muted">${esc(t('common.no_records'))}</p></div>`;
 
-  const head = cols.map(c => `<th class="${c.kind === 'num' ? 'num' : ''}">${esc(t(c.label || ('field.' + c.n)))}</th>`).join('');
+  // Date and time share one column and stack, in the header as well as in
+  // the cells - it keeps the table narrow enough to avoid sideways scrolling.
+  const head = cols.map(c => {
+    const label = c.kind === 'datetime'
+      ? `${esc(t('common.date'))}<br>${esc(t('common.time'))}`
+      : esc(t(c.label || ('field.' + c.n)));
+    return `<th class="${cellClass(c)}">${label}</th>`;
+  }).join('');
   const body = rows.map(r => `<tr data-id="${r.id}">
       ${cols.map(c => `<td class="${cellClass(c)}">${cellValue(r, c)}</td>`).join('')}
       <td><div class="row-actions">
@@ -609,6 +625,7 @@ function recordTable(entity, rows) {
 function cellClass(c) {
   if (c.kind === 'num') return 'num';
   if (c.kind === 'date' || c.kind === 'datetime') return 'date';
+  if (c.kind === 'text') return 'text';
   return '';
 }
 
@@ -616,7 +633,11 @@ function cellValue(row, c) {
   const v = row[c.n];
   switch (c.kind) {
     case 'date': return esc(fmtDate(v));
-    case 'datetime': return esc(fmtDateTime(v));
+    case 'datetime': {
+      if (!v) return '';
+      const time = fmtTime(v);
+      return `${esc(fmtDate(v))}${time ? `<span class="cell-sub">${esc(time)}</span>` : ''}`;
+    }
     case 'bool': return v === null || v === undefined || v === '' ? '' : (Number(v) ? esc(t('common.yes')) : esc(t('common.no')));
     case 'opt': return esc(optLabel(c.opts, v));
     case 'num': return v === null || v === undefined || v === '' ? '' : esc(String(v).replace(/\.00$/, '') + (c.suffix || ''));

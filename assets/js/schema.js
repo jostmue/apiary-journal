@@ -200,7 +200,7 @@ const COLUMNS = {
     { n: 'queen_cell_type', kind: 'opt', opts: 'queen_cell_type' },
     { n: 'varroa_count', kind: 'num' },
     { n: 'health_status', kind: 'opt', opts: 'health_status' },
-    { n: 'weather_temp', kind: 'num', suffix: ' °C' },
+    { n: 'weather_temp', kind: 'num', suffix: ' °C', label: 'weather.temp' },
     { n: 'notes', kind: 'text' }
   ],
   feedings: [
