@@ -11,7 +11,7 @@ return [
     // --- Database (MariaDB 10 from the Synology Package Center) -------------
     'db' => [
         'host'     => '127.0.0.1',
-        'port'     => 3307,            // MariaDB 10 on DSM uses 3307 by default
+        'port'     => 3307,            // DSM MariaDB 10: 3307, elsewhere usually 3306
         'name'     => 'beekeeping',
         'user'     => 'beekeeping',
         'password' => 'CHANGE_ME',
@@ -51,6 +51,25 @@ return [
         // Set to true once the installation is finished; install.php refuses
         // to run again while a config.php exists and users are present.
         'installed'       => true,
+    ],
+
+    // --- Security ----------------------------------------------------------
+    'security' => [
+        // Reverse proxies sitting in front of this app, as addresses or CIDR
+        // ranges. Only a request arriving from one of these is allowed to
+        // state the real client address and protocol through the headers
+        // X-Forwarded-For and X-Forwarded-Proto - otherwise any caller could
+        // claim to be someone else and walk around the login rate limit.
+        //
+        // Leave empty when PHP is reached directly. For the DSM reverse proxy
+        // or a proxy on the same machine: ['127.0.0.1', '::1'].
+        'trusted_proxies' => [],
+
+        // Send Strict-Transport-Security, which tells browsers to use HTTPS
+        // for this host from now on. Only switch this on once the site is
+        // reachable over HTTPS - it is remembered for a year and locks out
+        // plain HTTP, including for anyone else on the same hostname.
+        'hsts' => false,
     ],
 
     // --- Geocoding (address search for apiary coordinates) -----------------

@@ -16,7 +16,7 @@ function session_start_app(): void
         return;
     }
     $minutes = (int)(config()['app']['session_minutes'] ?? 480);
-    $secure  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+    $secure  = request_is_https();
     session_set_cookie_params([
         'lifetime' => $minutes * 60,
         'path'     => '/',
@@ -123,7 +123,7 @@ function login_is_locked(string $username): bool
     if (login_failures('detail', $username) >= LOGIN_MAX_ATTEMPTS) {
         return true;
     }
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $ip = client_ip();
     return $ip !== '' && login_failures('ip', $ip) >= LOGIN_MAX_PER_ADDRESS;
 }
 

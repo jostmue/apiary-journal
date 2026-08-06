@@ -4,6 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
+  <!-- The page carries no inline script, so scripts can be restricted to this
+       origin: an injected <script> or event handler simply will not run. Style
+       needs 'unsafe-inline' because the views set style attributes, and images
+       allow https: because the map tile server is configurable.
+       frame-ancestors cannot be set from a meta tag - see deploy/ for the
+       server configuration that adds it. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: https:;
+    connect-src 'self';
+    font-src 'self';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self'">
   <title>Apiary-Journal</title>
   <!-- ?v= is the cache buster. Bump it whenever an asset below changes,
        otherwise browsers mix a fresh app.js with a cached schema.js. -->

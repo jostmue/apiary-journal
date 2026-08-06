@@ -42,14 +42,140 @@ function db(): PDO
     return $pdo;
 }
 
+/**
+ * Whether the request reached the client over HTTPS.
+ *
+ * Behind a reverse proxy the connection to PHP is plain HTTP, so $_SERVER
+ * ['HTTPS'] is empty and the session cookie would go out without the Secure
+ * flag. X-Forwarded-Proto says otherwise - but anyone can send that header, so
+ * it counts only when the request came from a proxy listed in the config.
+ */
+function request_is_https(): bool
+{
+    return is_https_from($_SERVER, trusted_proxies());
+}
+
+/**
+ * The address of the actual client.
+ *
+ * Same rule: X-Forwarded-For is only believed when the request arrived from a
+ * configured proxy, otherwise a caller could forge any address and walk around
+ * the login rate limit.
+ */
+function client_ip(): string
+{
+    return client_ip_from($_SERVER, trusted_proxies());
+}
+
+function trusted_proxies(): array
+{
+    return array_map('strval', (array)(config()['security']['trusted_proxies'] ?? []));
+}
+
+/* The three functions below take everything they need as arguments, so the
+   behaviour can be tested without a request, a config file or a database. */
+
+function is_https_from(array $server, array $proxies): bool
+{
+    if (!empty($server['HTTPS']) && strtolower((string)$server['HTTPS']) !== 'off') {
+        return true;
+    }
+    if (!ip_is_trusted((string)($server['REMOTE_ADDR'] ?? ''), $proxies)) {
+        return false;
+    }
+    $proto = strtolower(trim((string)($server['HTTP_X_FORWARDED_PROTO'] ?? '')));
+    if ($proto !== '') {
+        // A chain of proxies appends, so the client's own protocol is first.
+        return trim(explode(',', $proto)[0]) === 'https';
+    }
+    return (int)($server['HTTP_X_FORWARDED_PORT'] ?? 0) === 443;
+}
+
+function client_ip_from(array $server, array $proxies): string
+{
+    $remote = (string)($server['REMOTE_ADDR'] ?? '');
+    if (!ip_is_trusted($remote, $proxies)) {
+        return $remote;
+    }
+    // Walk from the nearest hop outwards and stop at the first address that is
+    // not a proxy of ours - that is the client.
+    $chain = array_reverse(array_map('trim', explode(',', (string)($server['HTTP_X_FORWARDED_FOR'] ?? ''))));
+    foreach ($chain as $candidate) {
+        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_IP) && !ip_is_trusted($candidate, $proxies)) {
+            return $candidate;
+        }
+    }
+    return $remote;
+}
+
+function ip_is_trusted(string $ip, array $proxies): bool
+{
+    if ($ip === '') {
+        return false;
+    }
+    foreach ($proxies as $entry) {
+        if (ip_matches($ip, (string)$entry)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Match a plain address or a CIDR range such as 172.16.0.0/12. */
+function ip_matches(string $ip, string $pattern): bool
+{
+    if ($pattern === '') {
+        return false;
+    }
+    if (strpos($pattern, '/') === false) {
+        return $ip === $pattern;
+    }
+    [$subnet, $bits] = explode('/', $pattern, 2);
+    $ipBin     = @inet_pton($ip);
+    $subnetBin = @inet_pton($subnet);
+    $bits      = (int)$bits;
+    if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)
+        || $bits < 0 || $bits > strlen($ipBin) * 8) {
+        return false;
+    }
+    $whole = intdiv($bits, 8);
+    $rest  = $bits % 8;
+    if ($whole > 0 && strncmp($ipBin, $subnetBin, $whole) !== 0) {
+        return false;
+    }
+    if ($rest === 0) {
+        return true;
+    }
+    $mask = ~((1 << (8 - $rest)) - 1) & 0xFF;
+    return (ord($ipBin[$whole]) & $mask) === (ord($subnetBin[$whole]) & $mask);
+}
+
+/**
+ * Headers every response carries.
+ *
+ * The HTML page is served by the web server, not by PHP, so its policy lives
+ * in the meta tag in index.html and in the sample server configs under
+ * deploy/. These here cover the API responses and downloads.
+ */
+function send_security_headers(): void
+{
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: same-origin');
+    header('X-Frame-Options: DENY');
+    header("Content-Security-Policy: default-src 'none'; frame-ancestors 'none'");
+    if (request_is_https() && !empty(config()['security']['hsts'])) {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+}
+
 /** Send a JSON response and stop. */
 function json_out($payload, int $status = 200): void
 {
     if (!headers_sent()) {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        header('X-Content-Type-Options: nosniff');
         header('Cache-Control: no-store');
+        send_security_headers();
     }
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
@@ -141,7 +267,7 @@ function log_activity(string $action, ?string $entity = null, ?int $entityId = n
         $stmt->execute([
             current_user()['id'] ?? null,
             $action, $entity, $entityId, $detail,
-            $_SERVER['REMOTE_ADDR'] ?? null,
+            client_ip() ?: null,
         ]);
     } catch (Throwable $e) {
         error_log('[beekeeping] log failed: ' . $e->getMessage());

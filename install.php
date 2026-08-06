@@ -187,7 +187,7 @@ if ($post) {
     <form method="post" class="card form-grid" autocomplete="off">
       <h2>Database</h2>
       <label>Host<input name="db_host" value="<?= $v('db_host', '127.0.0.1') ?>" required></label>
-      <label>Port<input name="db_port" type="number" value="<?= $v('db_port', '3307') ?>" required></label>
+      <label>Port <small>(Synology MariaDB 10: 3307 &middot; standard MySQL/MariaDB: 3306)</small><input name="db_port" type="number" value="<?= $v('db_port', '3307') ?>" required></label>
       <label>Database name<input name="db_name" value="<?= $v('db_name', 'beekeeping') ?>" required></label>
       <label>Database user<input name="db_user" value="<?= $v('db_user', 'beekeeping') ?>" required></label>
       <label>Database password<input name="db_pass" type="password" value=""></label>

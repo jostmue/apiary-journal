@@ -1,0 +1,73 @@
+# Apiary-Journal on nginx.
+#
+# nginx ignores .htaccess entirely, so the two bundled ones do nothing here and
+# the protection has to live in this file. Adjust server_name, root, the
+# certificate paths and the PHP-FPM socket, then include it from your nginx
+# configuration.
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name apiary.example.org;
+
+    root  /var/www/apiary-journal;
+    index index.html;
+
+    ssl_certificate     /etc/letsencrypt/live/apiary.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/apiary.example.org/privkey.pem;
+
+    # Snapshots hold every record including password hashes. They are handed
+    # out by the API after a role check, never as static files.
+    location ^~ /backups/ { return 404; }
+
+    # Nothing else in here belongs to the running site: the schema, the docs,
+    # the tests, these samples and the git hooks.
+    location ^~ /db/       { return 404; }
+    location ^~ /docs/     { return 404; }
+    location ^~ /tests/    { return 404; }
+    location ^~ /deploy/   { return 404; }
+    location ^~ /.githooks { return 404; }
+    location ~ /\.         { return 404; }   # .git, .env, editor leftovers
+
+    # The database password lives in here. It is a PHP file and would normally
+    # be executed rather than printed, but a misconfigured PHP handler would
+    # hand out the source - so refuse it outright. This block must come before
+    # the general .php block below, since nginx takes the first matching regex.
+    location ~ ^/api/config\.php$ { return 404; }
+
+    # Uncomment once setup is done, as a second line of defence should you
+    # forget to delete the file.
+    # location = /install.php { return 404; }
+
+    # index.html carries its own Content-Security-Policy; frame-ancestors and
+    # HSTS cannot be set from a meta tag, so they are added here.
+    add_header X-Frame-Options           DENY          always;
+    add_header X-Content-Type-Options    nosniff       always;
+    add_header Referrer-Policy           same-origin   always;
+    add_header Content-Security-Policy   "frame-ancestors 'none'" always;
+
+    # Only switch this on once the site really is HTTPS-only: browsers
+    # remember it for a year, for this host and all its subdomains.
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    location ~ \.php$ {
+        include       fastcgi_params;
+        fastcgi_pass  unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+
+        # Backup uploads are the largest thing that ever arrives here.
+        client_max_body_size 64m;
+        fastcgi_read_timeout 120s;
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+
+# Plain HTTP exists only to send visitors to HTTPS.
+server {
+    listen 80;
+    server_name apiary.example.org;
+    return 301 https://$host$request_uri;
+}

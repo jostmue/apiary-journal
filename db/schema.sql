@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- Apiary-Journal - database schema (MariaDB 10.x, DSM Package Center)
+-- Apiary-Journal - database schema (MariaDB 10.x / MySQL 8, schema version 2)
 -- Charset: utf8mb4 so that notes may contain any unicode character.
 -- ---------------------------------------------------------------------------
 
@@ -251,6 +251,27 @@ CREATE TABLE IF NOT EXISTS settings (
   v  TEXT        NULL,
   PRIMARY KEY (k)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Password reset tokens. Only the hash is kept, so a leaked row cannot be
+-- turned back into a working link.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id     INT UNSIGNED NOT NULL,
+  token_hash  CHAR(64)     NOT NULL,
+  expires_at  DATETIME     NOT NULL,
+  used_at     DATETIME     NULL,
+  created_ip  VARCHAR(45)  NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_reset_token (token_hash),
+  KEY ix_reset_user (user_id),
+  CONSTRAINT fk_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Which migration steps this schema already contains. api/lib/migrate.php
+-- compares it against SCHEMA_VERSION and applies whatever is missing.
+INSERT INTO settings (k, v) VALUES ('db_version', '2')
+  ON DUPLICATE KEY UPDATE v = VALUES(v);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

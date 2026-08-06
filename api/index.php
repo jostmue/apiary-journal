@@ -15,6 +15,7 @@ error_reporting(E_ALL);
 date_default_timezone_set('UTC');
 
 require __DIR__ . '/lib/core.php';
+require __DIR__ . '/lib/migrate.php';
 require __DIR__ . '/lib/auth.php';
 require __DIR__ . '/lib/entities.php';
 require __DIR__ . '/lib/weather.php';
@@ -26,6 +27,10 @@ set_exception_handler(function (Throwable $e) {
     error_log('[beekeeping] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     json_out(['ok' => false, 'error' => 'server_error'], 500);
 });
+
+// An update is installed by copying files over the old ones, so the database
+// has to catch up on its own before anything touches it.
+migrate_if_needed();
 
 session_start_app();
 

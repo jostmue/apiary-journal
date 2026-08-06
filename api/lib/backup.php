@@ -244,6 +244,7 @@ function backup_sql_stream(): void
 {
     $pdo  = db();
     $name = 'apiary-journal-' . date('Y-m-d-His') . '.sql';
+    send_security_headers();
     header('Content-Type: application/sql; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $name . '"');
 
@@ -303,6 +304,7 @@ function handle_backup_download(): void
     if (!is_file($path)) {
         fail('backup_not_found', 404);
     }
+    send_security_headers();
     header('Content-Type: application/octet-stream');
     header('Content-Length: ' . filesize($path));
     header('Content-Disposition: attachment; filename="' . $file . '"');
