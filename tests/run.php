@@ -12,6 +12,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../api/lib/core.php';
+require __DIR__ . '/../api/lib/mail.php';
 
 $passed = 0;
 $failed = 0;
@@ -89,6 +90,20 @@ check('date is cut to ten characters', clean_value('2026-05-12T14:30', 'date'), 
 check('datetime gains seconds', clean_value('2026-05-12T14:30', 'datetime'), '2026-05-12 14:30:00');
 check('decimal comma is accepted', clean_value('1,5', 'float'), 1.5);
 check('empty becomes null', clean_value('', 'string'), null);
+
+// --- mail headers -----------------------------------------------------------
+check('plain subject stays readable', mail_encode_header('Password reset'), 'Password reset');
+check('non-ascii is encoded',
+    mail_encode_header('Neues Passwort fur dich'),
+    'Neues Passwort fur dich');
+$umlaut = "Gru\xc3\x9fe";   // "Gruesse" with a sharp s, as UTF-8 bytes
+check('umlauts are base64 encoded',
+    mail_encode_header($umlaut),
+    '=?UTF-8?B?' . base64_encode($umlaut) . '?=');
+// A newline in a header would let a caller append headers of their own.
+check('newline cannot start a header',
+    mail_encode_header("Subject\r\nBcc: someone@example.org"),
+    'Subject  Bcc: someone@example.org');
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

@@ -121,6 +121,16 @@ async function boot() {
     const me = await api('auth/me');
     session.weatherEnabled = !!me.weather;
     session.map = me.map || null;   // null when map tiles are switched off
+    session.mail = !!me.mail;       // no mail configured, no reset link
+
+    // A reset link has to work before anyone is signed in, and takes
+    // precedence over whatever session may still exist.
+    const reset = /^#\/reset\/([a-f0-9]{64})$/.exec(location.hash);
+    if (reset) {
+      setLocale(me.locale || getLocale());
+      renderReset(reset[1]);
+      return;
+    }
     if (me.user) {
       session.user = me.user;
       session.csrf = me.csrf;
@@ -153,12 +163,16 @@ function renderLogin() {
           <input name="password" type="password" autocomplete="current-password" required>
         </label>
         <div class="form-actions" style="margin-top:1rem">
+          ${session.mail ? `<button class="btn btn--ghost btn--sm" type="button" id="forgot">${esc(t('login.forgot'))}</button>` : ''}
+          <div style="flex:1"></div>
           <button class="btn btn--primary" type="submit">${esc(t('common.login'))}</button>
         </div>
       </form>
       <div class="lang-switch">${langButtons()}</div>
     </main>
     <div class="toast-host" id="toasts"></div>`;
+
+  $('#forgot')?.addEventListener('click', renderForgot);
 
   $('#login-form').addEventListener('submit', async ev => {
     ev.preventDefault();
@@ -178,6 +192,89 @@ function renderLogin() {
   });
 
   bindLangSwitch(() => renderLogin());
+}
+
+/** Ask for a reset link. The answer never says whether the account exists. */
+function renderForgot() {
+  document.body.className = 'login-page';
+  document.body.innerHTML = `
+    <main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <form class="card" id="forgot-form">
+        <h2>${esc(t('login.forgot'))}</h2>
+        <p class="muted">${esc(t('login.forgot_hint'))}</p>
+        <label>${esc(t('login.forgot_login'))}
+          <input name="login" required autofocus autocomplete="username">
+        </label>
+        <div class="form-actions" style="margin-top:1rem">
+          <button class="btn btn--ghost btn--sm" type="button" id="back">${esc(t('common.back'))}</button>
+          <div style="flex:1"></div>
+          <button class="btn btn--primary" type="submit">${esc(t('login.forgot_send'))}</button>
+        </div>
+      </form>
+    </main>
+    <div class="toast-host" id="toasts"></div>`;
+
+  $('#back').addEventListener('click', renderLogin);
+  $('#forgot-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const login = new FormData(ev.target).get('login');
+    try {
+      await api('auth/forgot', { login });
+      renderLoginNotice(t('login.forgot_sent'));
+    } catch (e) { showError(e); }
+  });
+}
+
+/** Set a new password from a link. Reached as #/reset/<token>. */
+function renderReset(token) {
+  document.body.className = 'login-page';
+  document.body.innerHTML = `
+    <main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <form class="card" id="reset-form">
+        <h2>${esc(t('login.reset_title'))}</h2>
+        <p class="muted">${esc(t('users.password_hint_new'))}</p>
+        <label>${esc(t('profile.new_password'))}
+          <input name="password" type="password" minlength="8" required autofocus autocomplete="new-password">
+        </label>
+        <label style="margin-top:.7rem">${esc(t('login.reset_repeat'))}
+          <input name="password2" type="password" minlength="8" required autocomplete="new-password">
+        </label>
+        <div class="form-actions" style="margin-top:1rem">
+          <button class="btn btn--ghost btn--sm" type="button" id="back">${esc(t('common.back'))}</button>
+          <div style="flex:1"></div>
+          <button class="btn btn--primary" type="submit">${esc(t('common.save'))}</button>
+        </div>
+      </form>
+    </main>
+    <div class="toast-host" id="toasts"></div>`;
+
+  $('#back').addEventListener('click', () => { location.hash = ''; renderLogin(); });
+  $('#reset-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    if (fd.get('password') !== fd.get('password2')) {
+      toast(t('login.reset_mismatch'), true);
+      return;
+    }
+    try {
+      await api('auth/reset', { token, password: fd.get('password') });
+      // Drop the token from the address bar before showing the login screen.
+      history.replaceState(null, '', location.pathname + location.search);
+      renderLoginNotice(t('login.reset_done'));
+    } catch (e) { showError(e); }
+  });
+}
+
+/** The login screen with a one-off message above the form. */
+function renderLoginNotice(message) {
+  renderLogin();
+  const form = $('#login-form');
+  const note = document.createElement('div');
+  note.className = 'alert alert--ok';
+  note.textContent = message;
+  form.parentNode.insertBefore(note, form);
 }
 
 function langButtons() {

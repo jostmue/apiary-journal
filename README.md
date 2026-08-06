@@ -1,14 +1,15 @@
 # Apiary-Journal
 
-A self-hosted beekeeping record book for a Synology NAS. It keeps track of
+A self-hosted beekeeping record book. It keeps track of
 apiaries, colonies and queens, and documents everything you do at the hive:
 inspections, feedings, treatments, harvests, events and open tasks. Weather at
 the apiary is filled in automatically for every inspection, the interface
 speaks German and English, and reports can be filtered down to a single colony
 and a single season.
 
-Runs on **Web Station (PHP)** and **MariaDB 10**, both from the DSM Package
-Center. No build step, no external service, no API key.
+Runs on any web server with **PHP** and **MariaDB/MySQL** - including a
+Synology NAS, which is what it was built for and where it is still tested.
+No build step, no dependencies, no API key.
 
 ---
 
@@ -41,7 +42,7 @@ Center. No build step, no external service, no API key.
 **Everything else**
 - User management with three roles: administrator, beekeeper (write access),
   viewer (read only). Sessions, bcrypt password hashes, CSRF protection, audit
-  log.
+  log, and a forgotten-password link when mail is configured.
 - Automatic weather per inspection from Open-Meteo, using the coordinates of
   the apiary the colony stands on. Past entries use the weather archive, so a
   record you type in three weeks late still gets the right weather. Responses
@@ -54,12 +55,14 @@ Center. No build step, no external service, no API key.
 
 ## Requirements
 
-| Component | Version | Source |
-|-----------|---------|--------|
-| DSM       | 7.x     | Synology |
-| Web Station | current | Package Center |
-| PHP       | 7.4 or newer (8.x recommended) | Package Center |
-| MariaDB   | 10      | Package Center |
+| Component | Version |
+|-----------|---------|
+| PHP       | 7.4 or newer, 8.1+ recommended |
+| MariaDB 10 or MySQL 8 | |
+| A web server that runs PHP | Apache, nginx, or Synology Web Station |
+
+On a Synology NAS all of it comes from the Package Center; see
+[docs/INSTALL_SYNOLOGY.md](docs/INSTALL_SYNOLOGY.md).
 
 PHP extensions: `pdo_mysql`, `json`, and `curl` or `allow_url_fopen` for the
 weather lookup. Everything else is core PHP.
@@ -98,6 +101,11 @@ api/lib/weather.php     Open-Meteo lookup and cache, address search
 api/lib/reports.php     report engine and dashboard figures
 api/lib/backup.php      snapshots, restore, SQL export
 api/lib/users.php       user management and profile
+api/lib/recovery.php    forgotten password: request a link, set a new password
+api/lib/mail.php        mail delivery, PHP mail() or a direct SMTP session
+api/lib/migrate.php     schema version and migration steps
+deploy/                 annotated nginx and Apache samples
+tests/run.php           tests that need no server and no database
 db/schema.sql           database schema
 backups/                snapshot files (default location, see Backup)
 ```
@@ -127,6 +135,43 @@ anything not listed there cannot be written, whatever the client sends.
    browser can mix a fresh `app.js` with a cached `schema.js`, which fails
    with "… is not defined".
 
+## Running it on an ordinary web server
+
+The app makes no assumptions beyond PHP and MySQL/MariaDB, and `deploy/` has
+an annotated sample for nginx and for Apache. Three settings matter once it is
+not just sitting on a LAN:
+
+- **`security.trusted_proxies`** - behind a reverse proxy the connection to PHP
+  is plain HTTP, so the session cookie would go out without the `Secure` flag
+  and the rate limit would see every visitor as one address. List the proxy
+  here and `X-Forwarded-Proto` and `X-Forwarded-For` are believed - but only
+  from that address, because otherwise anyone could claim to be anyone.
+- **`app.base_url`** - the address used to build password reset links. Left
+  empty it is taken from the request, which means trusting the `Host` header;
+  set it once the site is reachable from the internet.
+- **`security.hsts`** - only after HTTPS works, since browsers remember it for
+  a year.
+
+`index.html` carries a Content-Security-Policy that limits scripts to this
+origin. The page has no inline script, so an injected `<script>` or event
+handler does not execute - worth knowing before you add one.
+
+nginx ignores `.htaccess`, so on nginx the two bundled files protect nothing;
+use the sample.
+
+## Forgotten password
+
+Without a `mail` section the button is simply not shown, and an administrator
+sets passwords instead - which is the sensible arrangement on a NAS at home.
+Configure `mail` and users can request a link themselves. `transport` is either
+`mail`, which needs a working MTA on the machine, or `smtp`, which talks to a
+mailbox of your own and works anywhere with outbound access.
+
+A link is valid for 60 minutes, works once, and asking again invalidates the
+previous one. Only the hash of the token is stored. The reply is deliberately
+the same whether or not an account matched, so the form cannot be used to find
+out who has an account here.
+
 ## Working on the code
 
 There is no build step: edit, reload, done. Two things are worth doing once
@@ -144,6 +189,14 @@ git config core.hooksPath .githooks
 
 It runs `php -l` over the staged PHP files and needs the PHP CLI on PATH (or
 at `C:\php\php.exe` on Windows). Without PHP installed it simply skips.
+
+There are tests for the parts that are hard to check by clicking around - who
+a request comes from, whether it is encrypted, value normalisation and mail
+headers. They need neither a database nor a web server:
+
+```bash
+php tests/run.php
+```
 This matters more than it sounds: every request loads every file under
 `api/lib/`, so one parse error takes down the entire API, login included.
 

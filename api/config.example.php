@@ -45,12 +45,41 @@ return [
         // Default interface language for the login screen: 'de' or 'en'.
         'default_locale'  => 'de',
 
+        // Public address of this installation, e.g. https://apiary.example.org
+        // Used to build the link in a password reset mail. Leave empty to take
+        // it from the request - fine on a private network, but a caller can
+        // choose the Host header, so set it once the site is reachable from
+        // the internet.
+        'base_url'        => '',
+
         // Session lifetime in minutes.
         'session_minutes' => 480,
 
         // Set to true once the installation is finished; install.php refuses
         // to run again while a config.php exists and users are present.
         'installed'       => true,
+    ],
+
+    // --- Mail ---------------------------------------------------------------
+    // Needed only for the "forgotten password" link. Without it the button is
+    // hidden and an administrator sets passwords instead.
+    'mail' => [
+        'enabled'   => false,
+        'from'      => 'apiary-journal@example.org',
+        'from_name' => 'Apiary-Journal',
+
+        // 'mail' uses PHP's mail() and needs a working MTA on the machine -
+        // usual on hosting, almost never on a NAS. 'smtp' talks to a mailbox
+        // of your own and works anywhere with outbound access.
+        'transport' => 'smtp',
+        'smtp' => [
+            'host'     => 'smtp.example.org',
+            'port'     => 587,
+            'security' => 'starttls',   // 'starttls' (587), 'tls' (465), 'none'
+            'username' => '',
+            'password' => '',
+            'timeout'  => 15,
+        ],
     ],
 
     // --- Security ----------------------------------------------------------

@@ -22,9 +22,11 @@ require __DIR__ . '/lib/weather.php';
 require __DIR__ . '/lib/reports.php';
 require __DIR__ . '/lib/backup.php';
 require __DIR__ . '/lib/users.php';
+require __DIR__ . '/lib/mail.php';
+require __DIR__ . '/lib/recovery.php';
 
 set_exception_handler(function (Throwable $e) {
-    error_log('[beekeeping] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    error_log('[apiary-journal] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
     json_out(['ok' => false, 'error' => 'server_error'], 500);
 });
 
@@ -53,6 +55,7 @@ switch ($route) {
             'csrf'    => $u ? csrf_token() : null,
             'locale'  => $u['locale'] ?? (config()['app']['default_locale'] ?? 'de'),
             'weather' => (bool)(config()['weather']['enabled'] ?? false),
+            'mail'    => mail_enabled(),
             'map'     => empty($map['enabled']) ? null : [
                 'tile_url'    => $map['tile_url'] ?? '',
                 'attribution' => $map['attribution'] ?? '',
@@ -63,6 +66,16 @@ switch ($route) {
 
     case 'auth/logout':
         do_logout();
+        break;
+
+    // Forgotten password. Both are deliberately reachable without a session
+    // and answer the same way whether or not the account exists.
+    case 'auth/forgot':
+        handle_forgot_password();
+        break;
+
+    case 'auth/reset':
+        handle_reset_password();
         break;
 }
 

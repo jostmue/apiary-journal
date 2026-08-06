@@ -8,7 +8,8 @@ const session = {
   user: null,
   csrf: null,
   weatherEnabled: false,
-  map: null            // tile config from auth/me, null when disabled
+  map: null,           // tile config from auth/me, null when disabled
+  mail: false          // whether a password reset can be sent at all
 };
 
 async function api(route, body) {

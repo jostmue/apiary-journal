@@ -35,7 +35,7 @@ function db(): PDO
             ]);
             $pdo->exec("SET time_zone = '+00:00'");
         } catch (PDOException $e) {
-            error_log('[beekeeping] db connect failed: ' . $e->getMessage());
+            error_log('[apiary-journal] db connect failed: ' . $e->getMessage());
             json_out(['ok' => false, 'error' => 'db_unavailable'], 500);
         }
     }
@@ -270,6 +270,6 @@ function log_activity(string $action, ?string $entity = null, ?int $entityId = n
             client_ip() ?: null,
         ]);
     } catch (Throwable $e) {
-        error_log('[beekeeping] log failed: ' . $e->getMessage());
+        error_log('[apiary-journal] log failed: ' . $e->getMessage());
     }
 }

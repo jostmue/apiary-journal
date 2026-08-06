@@ -163,6 +163,7 @@ const STRINGS = {
     'users.title': 'Benutzer',
     'users.new': 'Neuer Benutzer',
     'users.password_hint': 'Leer lassen, um das Passwort nicht zu ändern.',
+    'users.password_hint_new': 'Mindestens 8 Zeichen.',
     'users.last_login': 'Letzte Anmeldung',
     'users.never': 'nie',
 
@@ -209,6 +210,15 @@ const STRINGS = {
 
     'login.title': 'Anmelden',
     'login.hint': 'Bitte mit deinem Konto anmelden.',
+    'login.forgot': 'Passwort vergessen?',
+    'login.forgot_hint': 'Trage deinen Benutzernamen oder deine E-Mail-Adresse ein. Gibt es dazu ein Konto mit hinterlegter Adresse, schicken wir einen Link zum Zurücksetzen.',
+    'login.forgot_login': 'Benutzername oder E-Mail',
+    'login.forgot_send': 'Link anfordern',
+    'login.forgot_sent': 'Wenn es zu dieser Angabe ein Konto gibt, ist der Link unterwegs. Er gilt 60 Minuten.',
+    'login.reset_title': 'Neues Passwort vergeben',
+    'login.reset_repeat': 'Passwort wiederholen',
+    'login.reset_mismatch': 'Die beiden Passwörter stimmen nicht überein.',
+    'login.reset_done': 'Passwort geändert. Du kannst dich jetzt anmelden.',
 
     'field.name': 'Bezeichnung',
     'field.code': 'Kürzel',
@@ -449,6 +459,7 @@ const STRINGS = {
     'err.forbidden': 'Dafür fehlen dir die Rechte.',
     'err.login_invalid': 'Benutzername oder Passwort stimmt nicht.',
     'err.too_many_attempts': 'Zu viele Fehlversuche. Bitte 15 Minuten warten.',
+    'err.reset_token_invalid': 'Dieser Link ist abgelaufen oder wurde schon benutzt. Fordere bitte einen neuen an.',
     'err.account_disabled': 'Dieses Konto ist deaktiviert.',
     'err.csrf_invalid': 'Sitzung abgelaufen. Bitte neu anmelden.',
     'err.db_unavailable': 'Die Datenbank ist nicht erreichbar.',
@@ -637,6 +648,7 @@ const STRINGS = {
     'users.title': 'Users',
     'users.new': 'New user',
     'users.password_hint': 'Leave empty to keep the current password.',
+    'users.password_hint_new': 'At least 8 characters.',
     'users.last_login': 'Last sign-in',
     'users.never': 'never',
 
@@ -683,6 +695,15 @@ const STRINGS = {
 
     'login.title': 'Sign in',
     'login.hint': 'Please sign in with your account.',
+    'login.forgot': 'Forgotten your password?',
+    'login.forgot_hint': 'Enter your user name or e-mail address. If an account with a stored address matches, we will send a link to set a new password.',
+    'login.forgot_login': 'User name or e-mail',
+    'login.forgot_send': 'Send link',
+    'login.forgot_sent': 'If an account matches, the link is on its way. It is valid for 60 minutes.',
+    'login.reset_title': 'Choose a new password',
+    'login.reset_repeat': 'Repeat password',
+    'login.reset_mismatch': 'The two passwords do not match.',
+    'login.reset_done': 'Password changed. You can sign in now.',
 
     'field.name': 'Name',
     'field.code': 'Short code',
@@ -923,6 +944,7 @@ const STRINGS = {
     'err.forbidden': 'You do not have permission for this.',
     'err.login_invalid': 'User name or password is wrong.',
     'err.too_many_attempts': 'Too many failed attempts. Please wait 15 minutes.',
+    'err.reset_token_invalid': 'This link has expired or was already used. Please request a new one.',
     'err.account_disabled': 'This account is disabled.',
     'err.csrf_invalid': 'Session expired. Please sign in again.',
     'err.db_unavailable': 'The database is not reachable.',
