@@ -105,7 +105,8 @@ const state = {
   route: '',
   reportFilter: null,
   reportView: 'detail',
-  reportRows: []
+  reportRows: [],
+  groups: []
 };
 
 const canWrite = () => session.user && (session.user.role === 'admin' || session.user.role === 'beekeeper');
@@ -129,6 +130,13 @@ async function boot() {
     if (reset) {
       setLocale(me.locale || getLocale());
       renderReset(reset[1]);
+      return;
+    }
+    // An invitation link works the same way before signing in.
+    const invite = /^#\/invite\/([a-f0-9]{64})$/.exec(location.hash);
+    if (invite && !me.user) {
+      setLocale(me.locale || getLocale());
+      renderInvite(invite[1]);
       return;
     }
     if (me.user) {
@@ -359,6 +367,7 @@ function renderNav() {
     ['#/tasks', 'nav.tasks'],
     ['#/reports', 'nav.reports'],
     ['manage', null],
+    ['#/groups', 'nav.groups'],
     ['#/profile', 'nav.profile']
   ];
   if (isAdmin()) {
@@ -373,14 +382,21 @@ function renderNav() {
 }
 
 async function refreshLookups() {
-  const [apiaries, colonies, users] = await Promise.all([
+  const [apiaries, colonies, users, groups] = await Promise.all([
     api('apiaries/list'),
     api('colonies/list', { limit: 2000 }),
-    api('users/list')
+    api('users/list'),
+    api('groups/list')
   ]);
   state.apiaries = apiaries;
   state.colonies = colonies;
   state.users = users;
+  state.groups = groups;
+}
+
+/** Groups the user may put records into - viewers cannot. */
+function writableGroups() {
+  return (state.groups || []).filter(g => g.my_role === 'owner' || g.my_role === 'member');
 }
 
 function colonyById(id) { return state.colonies.find(c => Number(c.id) === Number(id)); }
@@ -399,7 +415,9 @@ const ROUTES = [
   [/^#\/users$/, viewUsers],
   [/^#\/backup$/, viewBackup],
   [/^#\/log$/, viewLog],
-  [/^#\/profile$/, viewProfile]
+  [/^#\/profile$/, viewProfile],
+  [/^#\/groups$/, viewGroups],
+  [/^#\/groups\/(\d+)$/, viewGroup]
 ];
 
 async function route() {
@@ -1096,6 +1114,19 @@ function fieldHtml(f, record) {
       return wrap(`<input id="${id}" name="${f.n}" type="password" autocomplete="new-password" value="">`);
     case 'check':
       return `<label class="check ${f.full ? 'full' : ''}"><input id="${id}" name="${f.n}" type="checkbox"${Number(value) ? ' checked' : ''}> ${label}</label>`;
+    // Who else sees this apiary or colony. Everything below a colony follows
+    // the colony, so the choice is only offered on those two.
+    case 'group': {
+      const groups = writableGroups();
+      const pairs = groups.map(g => [g.id, g.name]);
+      const hint = groups.length
+        ? t('groups.share_hint')
+        : t('groups.share_none');
+      return wrap(
+        `<select id="${id}" name="${f.n}">${optionList(pairs, value, t('groups.private'))}</select>
+         <small class="muted">${esc(hint)}</small>`
+      );
+    }
     case 'select': {
       const pairs = f.opts === 'locale_opts'
         ? Object.entries(LOCALES)
@@ -1698,6 +1729,244 @@ async function viewProfile() {
       renderShell();
       route();
     } catch (e) { showError(e); }
+  });
+}
+
+/* ----------------------------------------------------------------- groups */
+
+async function viewGroups() {
+  const groups = await api('groups/list');
+  state.groups = groups;
+
+  $('#view').innerHTML =
+    topbar(t('groups.title'), `<button class="btn btn--primary" id="new-group">${esc(t('groups.new'))}</button>`) +
+    `<p class="muted">${esc(t('groups.intro'))}</p>` +
+    (groups.length
+      ? `<div class="grid grid--cards">${groups.map(groupCard).join('')}</div>`
+      : `<div class="card"><p class="muted">${esc(t('groups.empty'))}</p></div>`);
+
+  $('#new-group').addEventListener('click', () => editGroup(null));
+  $$('[data-group]').forEach(el => el.addEventListener('click', () => {
+    location.hash = '#/groups/' + el.dataset.group;
+  }));
+}
+
+function groupCard(g) {
+  return `<article class="colony" data-group="${g.id}" tabindex="0">
+    <div class="colony__head">
+      <div style="flex:1"><div class="colony__name">${esc(g.name)}</div>
+        <div class="muted">${esc(g.description || '')}</div></div>
+      <span class="pill">${esc(t('groups.role_' + g.my_role))}</span>
+    </div>
+    <div class="colony__meta">
+      <span>${esc(t('groups.members', { n: g.member_count }))}</span>
+    </div>
+  </article>`;
+}
+
+async function editGroup(group) {
+  const saved = await openSimpleForm(
+    group ? t('groups.edit') : t('groups.new'),
+    [
+      { n: 'name', label: t('field.name'), value: group ? group.name : '', required: true },
+      { n: 'description', label: t('groups.description'), value: group ? group.description : '' }
+    ],
+    data => api('groups/save', { record: Object.assign({}, data, { id: group ? group.id : null }) })
+  );
+  if (saved) {
+    await refreshLookups();
+    viewGroups();
+  }
+}
+
+async function viewGroup(id) {
+  id = Number(id);
+  const [data, groups] = await Promise.all([
+    api('groups/members', { group_id: id }),
+    api('groups/list')
+  ]);
+  state.groups = groups;
+  const group = groups.find(g => Number(g.id) === id);
+  if (!group) { location.hash = '#/groups'; return; }
+  const isOwner = data.my_role === 'owner';
+  const meId = session.user.id;
+
+  $('#view').innerHTML =
+    `<div class="topbar">
+       <a class="btn btn--ghost btn--sm" href="#/groups">&larr; ${esc(t('common.back'))}</a>
+       <h1>${esc(group.name)}</h1>
+       <div class="topbar__spacer"></div>
+       ${isOwner ? `<button class="btn" id="edit-group">${esc(t('common.edit'))}</button>
+                    <button class="btn btn--danger" id="del-group">${esc(t('common.delete'))}</button>` : ''}
+       <button class="btn btn--danger" id="leave-group">${esc(t('groups.leave'))}</button>
+     </div>
+     ${group.description ? `<p class="muted">${esc(group.description)}</p>` : ''}
+
+     <div class="card">
+       <h2>${esc(t('groups.members_title'))}</h2>
+       <div class="table-wrap"><table class="data">
+         <thead><tr><th>${esc(t('field.name'))}</th><th>${esc(t('groups.role'))}</th><th></th></tr></thead>
+         <tbody>${data.members.map(m => `<tr>
+           <td>${esc(m.name)}</td>
+           <td>${isOwner && Number(m.user_id) !== meId
+                 ? `<select data-role-for="${m.user_id}">${optionList(
+                      ['owner', 'member', 'viewer'].map(r => [r, t('groups.role_' + r)]), m.role)}</select>`
+                 : esc(t('groups.role_' + m.role))}</td>
+           <td class="row-actions">${isOwner && Number(m.user_id) !== meId
+                 ? `<button class="btn btn--sm btn--danger" data-remove="${m.user_id}">${esc(t('groups.remove'))}</button>`
+                 : ''}</td>
+         </tr>`).join('')}</tbody>
+       </table></div>
+     </div>
+
+     ${isOwner ? `<div class="card">
+       <h2>${esc(t('groups.invite_title'))}</h2>
+       <p class="muted">${esc(session.mail ? t('groups.invite_hint') : t('groups.invite_no_mail'))}</p>
+       ${session.mail ? `<div class="filters">
+         <label>${esc(t('groups.invite_email'))}<input type="email" id="inv-email" placeholder="name@example.org"></label>
+         <label>${esc(t('groups.role'))}
+           <select id="inv-role">${optionList(['member', 'viewer', 'owner'].map(r => [r, t('groups.role_' + r)]), 'member')}</select>
+         </label>
+         <div class="full"><button class="btn btn--primary" id="inv-send">${esc(t('groups.invite_send'))}</button></div>
+       </div>` : ''}
+       ${data.invites.length ? `<div class="table-wrap"><table class="data">
+         <thead><tr><th>${esc(t('groups.invite_email'))}</th><th>${esc(t('groups.role'))}</th>
+           <th>${esc(t('groups.invite_until'))}</th><th></th></tr></thead>
+         <tbody>${data.invites.map(i => `<tr>
+           <td>${esc(i.email)}</td><td>${esc(t('groups.role_' + i.role))}</td>
+           <td class="date">${esc(fmtServerDateTime(i.expires_at))}</td>
+           <td class="row-actions"><button class="btn btn--sm btn--danger" data-revoke="${i.id}">${esc(t('groups.invite_revoke'))}</button></td>
+         </tr>`).join('')}</tbody>
+       </table></div>` : ''}
+     </div>` : ''}`;
+
+  $('#edit-group')?.addEventListener('click', () => editGroup(group));
+  $('#del-group')?.addEventListener('click', async () => {
+    if (!confirm(t('groups.confirm_delete'))) return;
+    try {
+      await api('groups/delete', { id });
+      toast(t('common.deleted'));
+      await refreshLookups();
+      location.hash = '#/groups';
+    } catch (e) { showError(e); }
+  });
+  $('#leave-group').addEventListener('click', async () => {
+    if (!confirm(t('groups.confirm_leave'))) return;
+    try {
+      await api('groups/member_remove', { group_id: id });
+      toast(t('groups.left'));
+      await refreshLookups();
+      location.hash = '#/groups';
+    } catch (e) { showError(e); }
+  });
+  $$('[data-role-for]').forEach(sel => sel.addEventListener('change', async () => {
+    try {
+      await api('groups/member_role', { group_id: id, user_id: Number(sel.dataset.roleFor), role: sel.value });
+      toast(t('common.saved'));
+    } catch (e) { showError(e); viewGroup(id); }
+  }));
+  $$('[data-remove]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm(t('groups.confirm_remove'))) return;
+    try {
+      await api('groups/member_remove', { group_id: id, user_id: Number(b.dataset.remove) });
+      viewGroup(id);
+    } catch (e) { showError(e); }
+  }));
+  $('#inv-send')?.addEventListener('click', async () => {
+    const email = $('#inv-email').value.trim();
+    if (!email) return;
+    try {
+      await api('groups/invite', { group_id: id, email, role: $('#inv-role').value });
+      toast(t('groups.invite_sent'));
+      viewGroup(id);
+    } catch (e) { showError(e); }
+  });
+  $$('[data-revoke]').forEach(b => b.addEventListener('click', async () => {
+    try {
+      await api('groups/invite_revoke', { id: Number(b.dataset.revoke) });
+      viewGroup(id);
+    } catch (e) { showError(e); }
+  }));
+}
+
+/**
+ * Following an invitation link. Shown before signing in as well, so the
+ * recipient can see what they are being asked to join.
+ */
+async function renderInvite(token) {
+  let info;
+  try {
+    info = await api('groups/invite_preview', { token });
+  } catch (e) {
+    document.body.className = 'login-page';
+    document.body.innerHTML = `<main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <div class="card"><div class="alert alert--bad">${esc(t('err.invite_invalid'))}</div>
+      <button class="btn" id="go" style="margin-top:1rem">${esc(t('common.login'))}</button></div>
+    </main><div class="toast-host" id="toasts"></div>`;
+    $('#go').addEventListener('click', () => { location.hash = ''; renderLogin(); });
+    return;
+  }
+
+  document.body.className = 'login-page';
+  document.body.innerHTML = `<main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <div class="card">
+        <h2>${esc(t('groups.invite_heading'))}</h2>
+        <p>${esc(t('groups.invite_body', { group: info.group, role: t('groups.role_' + info.role) }))}</p>
+        <p class="muted">${esc(t('groups.invite_for', { email: info.email }))}</p>
+        <div class="form-actions" style="margin-top:1rem">
+          <button class="btn" id="cancel">${esc(t('common.cancel'))}</button>
+          <div style="flex:1"></div>
+          <button class="btn btn--primary" id="accept">
+            ${esc(info.signed_in ? t('groups.invite_accept') : t('common.login'))}</button>
+        </div>
+      </div>
+    </main><div class="toast-host" id="toasts"></div>`;
+
+  $('#cancel').addEventListener('click', () => { location.hash = ''; boot(); });
+  $('#accept').addEventListener('click', async () => {
+    // Not signed in yet: the link stays in the address bar and boot() picks
+    // it up again once a session exists.
+    if (!info.signed_in) { renderLogin(); return; }
+    try {
+      const r = await api('groups/invite_accept', { token });
+      history.replaceState(null, '', location.pathname + location.search);
+      toast(t('groups.joined', { group: r.group }));
+      await startApp();
+      location.hash = '#/groups';
+    } catch (e) { showError(e); }
+  });
+}
+
+/** A small modal form, for the few places that do not need the full builder. */
+function openSimpleForm(title, fields, onSubmit) {
+  return new Promise(resolve => {
+    const dlg = $('#dialog');
+    dlg.innerHTML = `<form class="dialog-form">
+      <h2>${esc(title)}</h2>
+      ${fields.map(f => `<label>${esc(f.label)}
+        <input name="${esc(f.n)}" value="${esc(f.value || '')}"${f.required ? ' required' : ''}>
+      </label>`).join('')}
+      <div class="form-actions" style="margin-top:1rem">
+        <button type="button" class="btn" id="sf-cancel">${esc(t('common.cancel'))}</button>
+        <div style="flex:1"></div>
+        <button type="submit" class="btn btn--primary">${esc(t('common.save'))}</button>
+      </div>
+    </form>`;
+    const form = dlg.querySelector('form');
+    $('#sf-cancel', dlg).addEventListener('click', () => { dlg.close(); resolve(false); });
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+      try {
+        await onSubmit(data);
+        toast(t('common.saved'));
+        dlg.close();
+        resolve(true);
+      } catch (e) { showError(e); }
+    });
+    dlg.showModal();
   });
 }
 

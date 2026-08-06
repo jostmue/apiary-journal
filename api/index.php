@@ -25,6 +25,7 @@ require __DIR__ . '/lib/backup.php';
 require __DIR__ . '/lib/users.php';
 require __DIR__ . '/lib/mail.php';
 require __DIR__ . '/lib/recovery.php';
+require __DIR__ . '/lib/groups.php';
 
 set_exception_handler(function (Throwable $e) {
     error_log('[apiary-journal] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
@@ -78,6 +79,13 @@ switch ($route) {
     case 'auth/reset':
         handle_reset_password();
         break;
+
+    // Someone following an invitation link has usually not signed in yet, so
+    // the preview has to work without a session. It only tells whoever holds
+    // the token what they were invited to - which they were sent by mail.
+    case 'groups/invite_preview':
+        handle_invite_preview();
+        break;
 }
 
 // --- everything below requires a session -----------------------------------
@@ -129,6 +137,17 @@ switch ($route) {
     case 'stats/summary':      handle_stats(); break;
     case 'stats/recent':       handle_recent(); break;
     case 'reports/detail':     handle_report_detail(); break;
+
+    // groups -----------------------------------------------------------------
+    case 'groups/list':           handle_groups_list(); break;
+    case 'groups/save':           handle_groups_save(); break;
+    case 'groups/delete':         handle_groups_delete(); break;
+    case 'groups/members':        handle_group_members(); break;
+    case 'groups/member_role':    handle_group_member_save(); break;
+    case 'groups/member_remove':  handle_group_member_remove(); break;
+    case 'groups/invite':         handle_group_invite(); break;
+    case 'groups/invite_revoke':  handle_group_invite_revoke(); break;
+    case 'groups/invite_accept':  handle_invite_accept(); break;
 
     // users ------------------------------------------------------------------
     case 'users/list':         handle_users_list(); break;

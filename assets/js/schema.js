@@ -48,6 +48,7 @@ const FORMS = {
     { n: 'altitude', t: 'number' },
     { n: 'forage_notes', t: 'textarea', full: true },
     { n: 'description', t: 'textarea', full: true },
+    { n: 'group_id', t: 'group' },
     { n: 'is_active', t: 'check', def: 1 }
   ],
 
@@ -63,6 +64,7 @@ const FORMS = {
     { n: 'frame_size', t: 'select', opts: 'frame_size' },
     { n: 'box_count', t: 'number', min: 0, max: 12 },
     { n: 'parent_colony_id', t: 'ref', ref: 'colonies' },
+    { n: 'group_id', t: 'group' },
     { n: 'notes', t: 'textarea', full: true }
   ],
 
