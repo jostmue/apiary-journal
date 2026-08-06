@@ -104,6 +104,7 @@ switch ($route) {
     case 'stats/summary':      handle_stats(); break;
     case 'stats/recent':       handle_recent(); break;
     case 'reports/query':      handle_report(); break;
+    case 'reports/detail':     handle_report_detail(); break;
     case 'reports/csv':        handle_report_csv(); break;
 
     // users ------------------------------------------------------------------

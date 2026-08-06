@@ -261,3 +261,10 @@ const COLUMNS = {
 
 /* Record types offered in the report filter. */
 const REPORT_TYPES = ['inspections', 'feedings', 'treatments', 'harvests', 'events', 'tasks'];
+
+/* The column each record type is dated by. The full protocol shows it in the
+   record header, so the field list below it skips it. */
+const REPORT_DATE_FIELD = {
+  inspections: 'inspected_at', feedings: 'fed_at', treatments: 'started_at',
+  harvests: 'harvested_at', events: 'event_at', tasks: 'due_date'
+};

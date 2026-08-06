@@ -319,12 +319,61 @@ dialog::backdrop { background: rgba(20, 24, 15, .45); }
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+/* --- Report: head and full protocol --------------------------------------- */
+.report-head { margin-bottom: 1rem; }
+.report-head h2 { margin: 0 0 .5rem; }
+.report-head__meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: .3rem .9rem; margin: 0; font-size: .85rem;
+}
+.report-head__meta dt { color: var(--muted); }
+.report-head__meta dd { margin: 0; }
+.report-head__stamp { color: var(--muted); font-size: .8rem; margin: .5rem 0 0; }
+
+.records { display: flex; flex-direction: column; gap: .9rem; }
+.record { border-top: 1px solid var(--line); padding-top: .8rem; }
+.records > .record:first-child { border-top: 0; padding-top: 0; }
+.record__head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin-bottom: .5rem;
+}
+.record h4 {
+  font-family: var(--body); font-size: .78rem; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); margin: .7rem 0 .3rem;
+}
+.record__fields {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: .3rem .9rem; margin: 0; font-size: .9rem;
+}
+.record__fields > div { display: flex; gap: .4rem; min-width: 0; }
+.record__fields > div.wide { grid-column: 1 / -1; }
+.record__fields dt { color: var(--muted); }
+.record__fields dt::after { content: ":"; }
+.record__fields dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
 /* --- Print (reports) ------------------------------------------------------ */
 @media print {
-  .sidebar, .filters, .row-actions, .btn, .tabs, .toast-host { display: none !important; }
+  .sidebar, .filters, .row-actions, .btn, .tabs, .toast-host,
+  .no-print { display: none !important; }
   .app { display: block; }
   .main { max-width: none; padding: 0; }
   .card { border: none; box-shadow: none; padding: 0; }
   body { background: #fff; font-size: 11pt; }
   table.data { font-size: 10pt; }
+
+  /* Repeat the header row when a table runs over several pages. */
+  table.data thead { display: table-header-group; }
+  table.data tr { break-inside: avoid; }
+
+  /* Keep a record together; never leave its heading alone at the page foot. */
+  .record { break-inside: avoid; page-break-inside: avoid; }
+  .record__head, .record h4 { break-after: avoid; }
+  .report-head { break-after: avoid; }
+  .records { gap: .6rem; }
+
+  /* Stat tiles print as plain figures, not as boxes. */
+  .stat { border: none; padding: 0 .6rem 0 0; }
+  .grid--stats { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; }
+  .stat__value { font-size: 1.2rem; }
 }
+
+@page { margin: 16mm 14mm; }

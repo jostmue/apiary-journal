@@ -72,7 +72,8 @@ const state = {
   colonies: [],
   users: [],
   route: '',
-  reportFilter: null
+  reportFilter: null,
+  reportView: 'detail'
 };
 
 const canWrite = () => session.user && (session.user.role === 'admin' || session.user.role === 'beekeeper');
@@ -893,7 +894,7 @@ async function viewReports() {
     topbar(t('reports.title'),
       `<button class="btn" id="rep-print">${esc(t('common.print'))}</button>
        <button class="btn" id="rep-csv">${esc(t('common.export_csv'))}</button>`) +
-    `<p class="muted">${esc(t('reports.hint'))}</p>
+    `<p class="muted no-print">${esc(t('reports.hint'))}</p>
      <div class="filters">
        <label>${esc(t('common.apiary'))}
          <select id="r-apiary">${optionList(state.apiaries.map(a => [a.id, a.name]), f.apiary_id, t('common.all'))}</select>
@@ -911,6 +912,13 @@ async function viewReports() {
          <div class="muted" style="margin-bottom:.3rem">${esc(t('reports.types'))}</div>
          <div style="display:flex;flex-wrap:wrap;gap:.8rem">
            ${REPORT_TYPES.map(ty => `<label class="check"><input type="checkbox" data-type="${ty}"${f.types.includes(ty) ? ' checked' : ''}> ${esc(t('type.' + ty))}</label>`).join('')}
+         </div>
+       </div>
+       <div class="full">
+         <div class="muted" style="margin-bottom:.3rem">${esc(t('reports.view'))}</div>
+         <div style="display:flex;flex-wrap:wrap;gap:.8rem">
+           ${[['detail', 'reports.view_detail'], ['table', 'reports.view_table']].map(([v, key]) =>
+             `<label class="check"><input type="radio" name="r-view" value="${v}"${state.reportView === v ? ' checked' : ''}> ${esc(t(key))}</label>`).join('')}
          </div>
        </div>
        <div class="full" style="display:flex;flex-wrap:wrap;gap:.4rem">
@@ -934,6 +942,11 @@ async function viewReports() {
   });
 
   $('#r-run').addEventListener('click', () => { state.reportFilter = read(); runReport(); });
+  $$('[name="r-view"]').forEach(r => r.addEventListener('change', () => {
+    state.reportView = r.value;
+    state.reportFilter = read();
+    runReport();
+  }));
   $$('[data-range]').forEach(b => b.addEventListener('click', () => {
     const y = new Date().getFullYear();
     const ranges = {
@@ -956,31 +969,121 @@ async function viewReports() {
   await runReport();
 }
 
+/** The filter written out, so a printed report says what it contains. */
+function reportHeadHtml(count) {
+  const f = state.reportFilter || {};
+  const nameOf = (list, id, key = 'name') =>
+    (list.find(x => String(x.id) === String(id)) || {})[key] || '';
+
+  const period = f.date_from || f.date_to
+    ? `${f.date_from ? fmtDate(f.date_from) : '…'} – ${f.date_to ? fmtDate(f.date_to) : '…'}`
+    : t('reports.filter_none');
+
+  const parts = [[t('reports.period'), period]];
+  if (f.apiary_id) parts.push([t('common.apiary'), nameOf(state.apiaries, f.apiary_id)]);
+  if (f.colony_id) parts.push([t('common.colony'), nameOf(state.colonies, f.colony_id)]);
+  if (f.user_id) {
+    const u = state.users.find(x => String(x.id) === String(f.user_id)) || {};
+    parts.push([t('common.user'), u.full_name || u.username || '']);
+  }
+  if (f.search) parts.push([t('reports.search'), f.search]);
+  parts.push([t('reports.types'), (f.types || []).map(ty => t('type.' + ty)).join(', ')]);
+
+  return `<div class="report-head">
+      <h2>${esc(t('reports.rows', { n: count }))}</h2>
+      <dl class="report-head__meta">
+        ${parts.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}
+      </dl>
+      <p class="report-head__stamp">${esc(t('reports.generated', { date: fmtDateTime(new Date().toISOString()) }))}</p>
+    </div>`;
+}
+
+/** One value of a full protocol record, formatted for reading. */
+function detailValue(row, f) {
+  if (f.t === 'ref') {
+    return row[{ colonies: 'colony_name', apiaries: 'apiary_name', users: 'user_name' }[f.ref]] || '';
+  }
+  const v = row[f.n];
+  if (v === null || v === undefined || v === '') return '';
+  switch (f.t) {
+    case 'check': return Number(v) ? t('common.yes') : t('common.no');
+    case 'select': return optLabel(f.opts, v);
+    case 'date': return fmtDate(v);
+    case 'datetime': return fmtDateTime(v);
+    // MariaDB returns DECIMAL as "8.50"; drop the zeros it padded on.
+    case 'number': return String(v).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+    default: return String(v);
+  }
+}
+
+/** Every filled field of one record, grouped by the sections of its form. */
+function detailBlockHtml(row) {
+  const type = row.record_type;
+  const skip = new Set(['colony_id', 'apiary_id', REPORT_DATE_FIELD[type]]);
+  const groups = [];
+  let current = { title: '', items: [] };
+
+  for (const f of FORMS[type] || []) {
+    if (f.section) {
+      groups.push(current);
+      current = { title: t(f.section), items: [] };
+      continue;
+    }
+    if (skip.has(f.n)) continue;
+
+    if (f.t === 'weather') {
+      if (row.weather_temp !== null && row.weather_temp !== undefined && row.weather_temp !== '') {
+        current.items.push({ label: t('weather.title'), html: weatherValuesHtml(row), wide: true });
+      }
+      continue;
+    }
+    const value = detailValue(row, f);
+    if (value === '') continue;
+    current.items.push({
+      label: t('field.' + f.n),
+      html: esc(value),
+      wide: f.t === 'textarea'
+    });
+  }
+  groups.push(current);
+
+  const dateField = (FORMS[type] || []).find(f => f.n === REPORT_DATE_FIELD[type]);
+  const dateText = dateField && dateField.t === 'datetime'
+    ? fmtDateTime(row.record_date) : fmtDate(row.record_date);
+  const place = [row.colony_name, row.apiary_name].filter(Boolean).join(' · ');
+  const body = groups.filter(g => g.items.length).map(g => `
+      ${g.title ? `<h4>${esc(g.title)}</h4>` : ''}
+      <dl class="record__fields">
+        ${g.items.map(i => `<div${i.wide ? ' class="wide"' : ''}><dt>${esc(i.label)}</dt><dd>${i.html}</dd></div>`).join('')}
+      </dl>`).join('');
+
+  return `<article class="record">
+      <header class="record__head">
+        <span class="pill pill--type">${esc(t('type.' + type))}</span>
+        <b>${esc(dateText)}</b>
+        ${place ? `<span>${esc(place)}</span>` : ''}
+        ${row.user_name ? `<span class="muted">${esc(row.user_name)}</span>` : ''}
+      </header>
+      ${body || `<p class="muted">${esc(t('reports.no_fields'))}</p>`}
+    </article>`;
+}
+
 async function runReport() {
   const out = $('#report-out');
   out.innerHTML = `<p class="muted">${esc(t('common.loading'))}</p>`;
-  const data = await api('reports/query', { filter: state.reportFilter });
+  const detail = state.reportView === 'detail';
+  const data = await api(detail ? 'reports/detail' : 'reports/query', { filter: state.reportFilter });
   const s = data.summary;
 
   const chip = (label, value) =>
     value === null || value === undefined ? '' :
     `<div class="stat"><div class="stat__value">${esc(value)}</div><div class="stat__label">${esc(label)}</div></div>`;
 
-  out.innerHTML =
-    `<div class="grid grid--stats" style="margin-bottom:1rem">
-       ${chip(t('inspections.title'), s.inspections)}
-       ${chip(t('reports.varroa_avg'), s.varroa_avg)}
-       ${chip(t('reports.varroa_max'), s.varroa_max)}
-       ${chip(t('feedings.title'), s.feedings)}
-       ${chip(t('reports.feed_total'), s.feed_total)}
-       ${chip(t('treatments.title'), s.treatments)}
-       ${chip(t('reports.harvest_kg'), s.harvest_kg)}
-       ${chip(t('reports.water_avg'), s.water_avg)}
-       ${chip(t('events.title'), s.events)}
-     </div>
-     <div class="card">
-       <h2>${esc(t('reports.rows', { n: data.rows.length }))}</h2>
-       ${data.rows.length ? `<div class="table-wrap"><table class="data">
+  const rowsHtml = !data.rows.length
+    ? `<p class="muted">${esc(t('reports.empty'))}</p>`
+    : detail
+      ? `<div class="records">${data.rows.map(detailBlockHtml).join('')}</div>`
+      : `<div class="table-wrap"><table class="data">
           <thead><tr>
             <th>${esc(t('common.date'))}</th><th>${esc(t('common.type'))}</th>
             <th>${esc(t('common.apiary'))}</th><th>${esc(t('common.colony'))}</th>
@@ -995,9 +1098,22 @@ async function runReport() {
             <td>${esc(r.summary || '')}</td>
             <td>${esc(r.notes || '')}</td>
             <td>${esc(r.user_name || '')}</td>
-          </tr>`).join('')}</tbody></table></div>`
-        : `<p class="muted">${esc(t('reports.empty'))}</p>`}
-     </div>`;
+          </tr>`).join('')}</tbody></table></div>`;
+
+  out.innerHTML =
+    reportHeadHtml(data.rows.length) +
+    `<div class="grid grid--stats" style="margin-bottom:1rem">
+       ${chip(t('inspections.title'), s.inspections)}
+       ${chip(t('reports.varroa_avg'), s.varroa_avg)}
+       ${chip(t('reports.varroa_max'), s.varroa_max)}
+       ${chip(t('feedings.title'), s.feedings)}
+       ${chip(t('reports.feed_total'), s.feed_total)}
+       ${chip(t('treatments.title'), s.treatments)}
+       ${chip(t('reports.harvest_kg'), s.harvest_kg)}
+       ${chip(t('reports.water_avg'), s.water_avg)}
+       ${chip(t('events.title'), s.events)}
+     </div>
+     <div class="card">${rowsHtml}</div>`;
 }
 
 /* ------------------------------------------------------------------ users */
