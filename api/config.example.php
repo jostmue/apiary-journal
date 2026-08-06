@@ -20,14 +20,23 @@ return [
 
     // --- Application -------------------------------------------------------
     'app' => [
-        // Absolute path of the directory used for database backups.
-        // Must be writable by the web server user (http on DSM):
-        // create the folder in File Station and grant "http" read/write.
-        // Keep this OUTSIDE the web root - snapshots contain all data
-        // including password hashes, and nginx on DSM does not honour the
-        // .htaccess that protects the bundled backups/ folder.
-        // Fallback (works, but inside the web root): __DIR__ . '/../backups'
-        'backup_dir'      => '/volume1/Backup/apiary-journal',
+        // Directory used for database backups, writable by the web server
+        // user (http on DSM).
+        //
+        // Defaults to the bundled folder inside the site because that works
+        // everywhere: Web Station confines PHP with open_basedir, and a path
+        // outside the document root is not merely unwritable - PHP cannot see
+        // it at all, so is_dir() reports a directory that plainly exists as
+        // missing. Protection here rests on the unguessable random file
+        // names, the bundled .htaccess (Apache only) and an auto-created
+        // empty index.html.
+        //
+        // Snapshots contain all data including password hashes, so moving
+        // them out of the web root is worthwhile if you can: add the target
+        // to open_basedir in the Web Station PHP profile - keeping every path
+        // already listed there, or PHP loses access to the site itself - and
+        // put the absolute path here.
+        'backup_dir'      => __DIR__ . '/../backups',
 
         // Keep at most this many automatic/manual backups; older ones are
         // removed when a new backup is created. 0 = keep everything.

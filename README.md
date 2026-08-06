@@ -74,9 +74,7 @@ The full walkthrough with DSM screenshots-worth of detail is in
 2. Create a database `beekeeping` and a database user with all privileges on it.
 3. Copy this folder to `/volume1/web/beekeeping` (or any folder served by a
    Web Station web portal).
-4. Make `api/` writable for the web server user (`http`), and create the
-   backup directory (default `/volume1/Backup/apiary-journal`) with read/write
-   for `http`.
+4. Make `api/` and `backups/` writable for the web server user (`http`).
 5. Open `http://<nas>:<port>/install.php`, fill in the database credentials and
    create the first administrator.
 6. **Delete `install.php`.** Then open `index.html` and sign in.
@@ -101,7 +99,7 @@ api/lib/reports.php     report engine, CSV export, dashboard figures
 api/lib/backup.php      snapshots, restore, SQL export
 api/lib/users.php       user management and profile
 db/schema.sql           database schema
-backups/                fallback snapshot folder (see Backup below)
+backups/                snapshot files (default location, see Backup)
 ```
 
 ## How the API works
@@ -132,8 +130,8 @@ anything not listed there cannot be written, whatever the client sends.
 Two independent layers, use both:
 
 - **In the app** (Backup page, administrators only): creates a compressed JSON
-  snapshot of all tables in the configured `backup_dir` (default
-  `/volume1/Backup/apiary-journal`). Restore replaces the data, after
+  snapshot of all tables in the configured `backup_dir` (the bundled
+  `backups/` folder by default). Restore replaces the data, after
   automatically taking a snapshot of the current state first. You can keep the
   existing user accounts while replacing journal data. The SQL export produces
   a dump for phpMyAdmin or the `mysql` client.
@@ -154,10 +152,16 @@ Two independent layers, use both:
   restricting the portal to your LAN or a VPN.
 - Delete `install.php` after setup; it refuses to run once users exist, but it
   does not belong on a live system.
-- `backup_dir` defaults to `/volume1/Backup/apiary-journal`, outside the web
-  root, because snapshots contain all data including password hashes. If you
-  point it back into the web folder, note that nginx on DSM ignores the
-  bundled `.htaccess`; only the random file name suffix protects the files.
+- Snapshots contain all data including password hashes, and `backup_dir`
+  defaults to the bundled `backups/` folder inside the site. That default is
+  chosen because it works everywhere: Web Station confines PHP with
+  `open_basedir`, so a folder outside the document root is invisible to PHP
+  even when its owner and mode are right. Inside the site the files are
+  protected by unguessable random names, an auto-created empty `index.html`
+  and the bundled `.htaccess` - the last of which Apache honours and nginx
+  ignores. Moving `backup_dir` out of the web root is the stronger option:
+  add the target to `open_basedir` in the Web Station PHP profile, keeping
+  every path already listed there.
 
 ## Weather data
 

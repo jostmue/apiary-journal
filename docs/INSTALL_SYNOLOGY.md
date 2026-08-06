@@ -56,17 +56,22 @@ The web server runs as user `http`. In **File Station**, right-click the
 read/write on:
 
 - `api/` (the installer writes `config.php` there)
-- the backup directory (default `/volume1/Backup/apiary-journal` - create this
-  shared folder or directory first; it deliberately lives **outside** the web
-  root because snapshots contain all data including password hashes)
+- `backups/` (snapshots are written there)
 
 Read access is enough for everything else. With SSH:
 
 ```bash
-sudo mkdir -p /volume1/Backup/apiary-journal
-sudo chown -R http:http /volume1/web/beekeeping/api /volume1/Backup/apiary-journal
-sudo chmod 750 /volume1/web/beekeeping/api /volume1/Backup/apiary-journal
+sudo chown -R http:http /volume1/web/beekeeping/api /volume1/web/beekeeping/backups
+sudo chmod 750 /volume1/web/beekeeping/api /volume1/web/beekeeping/backups
 ```
+
+Snapshots hold every record including password hashes, so keeping them outside
+the web root is safer - but note that Web Station confines PHP with
+`open_basedir`, which makes any folder outside the document root invisible to
+PHP no matter how its permissions look. To move them out, add the target path
+to `open_basedir` in the PHP profile (keeping every path already listed there,
+or PHP loses access to the site itself), then set `backup_dir` in
+`api/config.php` accordingly.
 
 ## 6. Run the setup wizard
 
@@ -111,7 +116,7 @@ Open `http://<nas-ip>:8080/` and sign in.
 ## 9. Backups
 
 - In the app: **Backup → Create backup now**. Snapshots land in the
-  `backup_dir` from `api/config.php` (default `/volume1/Backup/apiary-journal`),
+  `backup_dir` from `api/config.php` (the bundled `backups/` folder by default),
   can be downloaded, uploaded and restored, and old ones are pruned according
   to `backup_keep`.
 - On the NAS: back up the MariaDB database with **Hyper Backup** (it has a
