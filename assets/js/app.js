@@ -987,7 +987,7 @@ function reportHeadHtml(count) {
     parts.push([t('common.user'), u.full_name || u.username || '']);
   }
   if (f.search) parts.push([t('reports.search'), f.search]);
-  parts.push([t('reports.types'), (f.types || []).map(ty => t('type.' + ty)).join(', ')]);
+  parts.push([t('reports.types'), (f.types || []).map(ty => t('type.' + ty)).join(', ') || '–']);
 
   return `<div class="report-head">
       <h2>${esc(t('reports.rows', { n: count }))}</h2>
@@ -1079,8 +1079,10 @@ async function runReport() {
     value === null || value === undefined ? '' :
     `<div class="stat"><div class="stat__value">${esc(value)}</div><div class="stat__label">${esc(label)}</div></div>`;
 
+  const noTypes = !(state.reportFilter.types || []).length;
+
   const rowsHtml = !data.rows.length
-    ? `<p class="muted">${esc(t('reports.empty'))}</p>`
+    ? `<p class="muted">${esc(t(noTypes ? 'reports.no_types' : 'reports.empty'))}</p>`
     : detail
       ? `<div class="records">${data.rows.map(detailBlockHtml).join('')}</div>`
       : `<div class="table-wrap"><table class="data">
@@ -1100,20 +1102,22 @@ async function runReport() {
             <td>${esc(r.user_name || '')}</td>
           </tr>`).join('')}</tbody></table></div>`;
 
+  const chips = [
+    chip(t('inspections.title'), s.inspections),
+    chip(t('reports.varroa_avg'), s.varroa_avg),
+    chip(t('reports.varroa_max'), s.varroa_max),
+    chip(t('feedings.title'), s.feedings),
+    chip(t('reports.feed_total'), s.feed_total),
+    chip(t('treatments.title'), s.treatments),
+    chip(t('reports.harvest_kg'), s.harvest_kg),
+    chip(t('reports.water_avg'), s.water_avg),
+    chip(t('events.title'), s.events)
+  ].join('');
+
   out.innerHTML =
     reportHeadHtml(data.rows.length) +
-    `<div class="grid grid--stats" style="margin-bottom:1rem">
-       ${chip(t('inspections.title'), s.inspections)}
-       ${chip(t('reports.varroa_avg'), s.varroa_avg)}
-       ${chip(t('reports.varroa_max'), s.varroa_max)}
-       ${chip(t('feedings.title'), s.feedings)}
-       ${chip(t('reports.feed_total'), s.feed_total)}
-       ${chip(t('treatments.title'), s.treatments)}
-       ${chip(t('reports.harvest_kg'), s.harvest_kg)}
-       ${chip(t('reports.water_avg'), s.water_avg)}
-       ${chip(t('events.title'), s.events)}
-     </div>
-     <div class="card">${rowsHtml}</div>`;
+    (chips ? `<div class="grid grid--stats" style="margin-bottom:1rem">${chips}</div>` : '') +
+    `<div class="card">${rowsHtml}</div>`;
 }
 
 /* ------------------------------------------------------------------ users */

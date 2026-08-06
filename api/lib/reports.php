@@ -109,15 +109,20 @@ function report_from(string $type, array $s): string
             LEFT JOIN users u ON u.id = x.user_id";
 }
 
-/** The record types a filter selects, falling back to all of them. */
+/**
+ * The record types a filter selects.
+ *
+ * A missing 'types' key means "no preference given" and yields all types -
+ * the dashboard timeline relies on that. An empty list, on the other hand, is
+ * a deliberate choice by the user and must yield nothing.
+ */
 function report_types(array $filter): array
 {
     $sources = report_sources();
-    $types   = $filter['types'] ?? array_keys($sources);
-    if (!is_array($types) || !$types) {
-        $types = array_keys($sources);
+    if (!array_key_exists('types', $filter) || !is_array($filter['types'])) {
+        return array_keys($sources);
     }
-    return array_values(array_filter($types, fn($t) => isset($sources[$t])));
+    return array_values(array_filter($filter['types'], fn($t) => isset($sources[$t])));
 }
 
 function report_query(array $filter): array
@@ -218,23 +223,36 @@ function report_summary(array $filter): array
         return $stmt->fetch() ?: [];
     };
 
-    $insp    = $run('inspections', 'inspected_at', 'COUNT(*) AS n, AVG(x.varroa_count) AS varroa_avg, MAX(x.varroa_count) AS varroa_max');
-    $feed    = $run('feedings', 'fed_at', "COUNT(*) AS n, SUM(CASE WHEN x.unit IN ('kg','l') THEN x.amount ELSE 0 END) AS total");
-    $treat   = $run('treatments', 'started_at', 'COUNT(*) AS n');
-    $harvest = $run('harvests', 'harvested_at', 'COUNT(*) AS n, SUM(x.net_kg) AS total_kg, AVG(x.water_content) AS water_avg');
-    $events  = $run('events', 'event_at', 'COUNT(*) AS n');
+    // Key figures cover the selected record types only; a figure for a type
+    // the user deselected stays null so the interface can drop the tile.
+    $types = report_types($filter);
+    $only  = function (string $type, string $table, string $dateCol, string $select) use ($types, $run) {
+        return in_array($type, $types, true) ? $run($table, $dateCol, $select) : null;
+    };
+
+    $insp    = $only('inspections', 'inspections', 'inspected_at', 'COUNT(*) AS n, AVG(x.varroa_count) AS varroa_avg, MAX(x.varroa_count) AS varroa_max');
+    $feed    = $only('feedings', 'feedings', 'fed_at', "COUNT(*) AS n, SUM(CASE WHEN x.unit IN ('kg','l') THEN x.amount ELSE 0 END) AS total");
+    $treat   = $only('treatments', 'treatments', 'started_at', 'COUNT(*) AS n');
+    $harvest = $only('harvests', 'harvests', 'harvested_at', 'COUNT(*) AS n, SUM(x.net_kg) AS total_kg, AVG(x.water_content) AS water_avg');
+    $events  = $only('events', 'events', 'event_at', 'COUNT(*) AS n');
+
+    // $empty is what a selected type shows when it matched no rows: a sum of
+    // nothing is 0, an average of nothing has no meaningful value.
+    $num = fn($row, string $key, int $dec, $empty = null) => $row === null ? null
+        : ($row[$key] !== null ? round((float)$row[$key], $dec) : $empty);
+    $cnt = fn($row) => $row !== null ? (int)($row['n'] ?? 0) : null;
 
     return [
-        'inspections'   => (int)($insp['n'] ?? 0),
-        'varroa_avg'    => $insp['varroa_avg'] !== null ? round((float)$insp['varroa_avg'], 1) : null,
-        'varroa_max'    => $insp['varroa_max'] !== null ? (int)$insp['varroa_max'] : null,
-        'feedings'      => (int)($feed['n'] ?? 0),
-        'feed_total'    => $feed['total'] !== null ? round((float)$feed['total'], 2) : 0,
-        'treatments'    => (int)($treat['n'] ?? 0),
-        'harvests'      => (int)($harvest['n'] ?? 0),
-        'harvest_kg'    => $harvest['total_kg'] !== null ? round((float)$harvest['total_kg'], 2) : 0,
-        'water_avg'     => $harvest['water_avg'] !== null ? round((float)$harvest['water_avg'], 1) : null,
-        'events'        => (int)($events['n'] ?? 0),
+        'inspections'   => $cnt($insp),
+        'varroa_avg'    => $num($insp, 'varroa_avg', 1),
+        'varroa_max'    => $insp !== null && $insp['varroa_max'] !== null ? (int)$insp['varroa_max'] : null,
+        'feedings'      => $cnt($feed),
+        'feed_total'    => $num($feed, 'total', 2, 0),
+        'treatments'    => $cnt($treat),
+        'harvests'      => $cnt($harvest),
+        'harvest_kg'    => $num($harvest, 'total_kg', 2, 0),
+        'water_avg'     => $num($harvest, 'water_avg', 1),
+        'events'        => $cnt($events),
     ];
 }
 
