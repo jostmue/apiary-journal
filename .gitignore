@@ -1,6 +1,6 @@
 api/config.php
-backups/*.bjb.json
-backups/*.bjb.json.gz
+backups/*.ajb.json
+backups/*.ajb.json.gz
 
 # Synology Drive / Windows / Tooling
 .SynologyWorkingDirectory/

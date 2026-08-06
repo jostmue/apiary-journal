@@ -3,7 +3,7 @@
  * Backup and restore.
  *
  * Two formats are produced:
- *   *.bjb.json(.gz)  full snapshot, used for restore inside the app
+ *   *.ajb.json(.gz)  full snapshot, used for restore inside the app
  *   *.sql            portable dump for mysql/phpMyAdmin (export only)
  *
  * Everything is written in pure PHP, so no mysqldump binary is required -
@@ -50,7 +50,7 @@ function backup_safe_name(string $name): string
 
 function backup_collect(): array
 {
-    $data = ['format' => 'beekeeping-journal', 'version' => 1, 'created_at' => date('c'), 'tables' => []];
+    $data = ['format' => 'apiary-journal', 'version' => 1, 'created_at' => date('c'), 'tables' => []];
     foreach (BACKUP_TABLES as $t) {
         $rows = db()->query("SELECT * FROM {$t}")->fetchAll();
         $data['tables'][$t] = $rows;
@@ -70,10 +70,10 @@ function backup_create(string $label = 'manual'): string
     $base = 'backup-' . date('Y-m-d-His') . '-' . preg_replace('/[^a-z0-9]/i', '', $label)
           . '-' . bin2hex(random_bytes(3));
     if (function_exists('gzencode')) {
-        $file = $base . '.bjb.json.gz';
+        $file = $base . '.ajb.json.gz';
         file_put_contents($dir . '/' . $file, gzencode($json, 6));
     } else {
-        $file = $base . '.bjb.json';
+        $file = $base . '.ajb.json';
         file_put_contents($dir . '/' . $file, $json);
     }
 
@@ -103,7 +103,7 @@ function backup_list_files(): array
 {
     $dir  = backup_dir();
     $out  = [];
-    foreach (glob($dir . '/*.bjb.json*') ?: [] as $path) {
+    foreach (glob($dir . '/*.ajb.json*') ?: [] as $path) {
         $out[] = [
             'name'     => basename($path),
             'size'     => filesize($path),
@@ -125,7 +125,7 @@ function backup_read(string $file): array
         $raw = gzdecode($raw);
     }
     $data = json_decode((string)$raw, true);
-    if (!is_array($data) || ($data['format'] ?? '') !== 'beekeeping-journal') {
+    if (!is_array($data) || ($data['format'] ?? '') !== 'apiary-journal') {
         fail('backup_invalid');
     }
     return $data;
@@ -265,7 +265,7 @@ function handle_backup_restore(): void
     } else {
         $payload = param('payload');
         $data    = is_array($payload) ? $payload : json_decode((string)$payload, true);
-        if (!is_array($data) || ($data['format'] ?? '') !== 'beekeeping-journal') {
+        if (!is_array($data) || ($data['format'] ?? '') !== 'apiary-journal') {
             fail('backup_invalid');
         }
     }
@@ -282,7 +282,7 @@ function handle_backup_upload(): void
         fail('no_file');
     }
     $name = backup_safe_name($_FILES['file']['name']);
-    if (!preg_match('/\.bjb\.json(\.gz)?$/', $name)) {
+    if (!preg_match('/\.ajb\.json(\.gz)?$/', $name)) {
         fail('backup_invalid');
     }
     move_uploaded_file($_FILES['file']['tmp_name'], backup_dir() . '/' . $name);
