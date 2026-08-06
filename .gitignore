@@ -6,3 +6,7 @@ backups/*.ajb.json.gz
 .SynologyWorkingDirectory/
 desktop.ini
 .claude/
+
+# Ad-hoc diagnostic scripts dropped into the web root
+_*.php
+_*.html
