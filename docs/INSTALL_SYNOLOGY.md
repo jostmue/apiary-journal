@@ -128,4 +128,5 @@ Open `http://<nas-ip>:8080/` and sign in.
 | *"Weather data is not available"* | No outbound internet access, or `curl` is disabled in the PHP profile. The apiary may also have no coordinates. |
 | Blank page, no error | Look at the PHP error log: Web Station → PHP profile → error log path, usually under `/volume1/web/…` or `/var/log/nginx/`. |
 | Sign-in loops back to the login screen | Cookies blocked, or the session directory is not writable. Check `session.save_path` in the PHP profile. |
+| *"The backup directory is invisible to PHP"* | Web Station confines PHP with `open_basedir`, so a folder outside the document root does not exist as far as PHP is concerned - even with `http:http` and mode 770. Either add the backup path to `open_basedir` in **Web Station → PHP → your profile**, or point `backup_dir` at a folder inside the site (it is protected by the random file names and the bundled `.htaccess`). The error message in the app prints the current `open_basedir` value. |
 | Upload of a backup file fails | `upload_max_filesize` and `post_max_size` in the PHP profile are smaller than the snapshot. |

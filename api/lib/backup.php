@@ -27,10 +27,10 @@ function backup_dir(): string
     // not be created at all, or it exists but the web server user cannot
     // write to it. On DSM the second one is usually a share permission.
     if (!is_dir($dir)) {
-        fail('backup_dir_missing', 500, $dir);
+        fail('backup_dir_missing', 500, backup_dir_hint($dir));
     }
     if (!is_writable($dir)) {
-        fail('backup_dir_not_writable', 500, $dir);
+        fail('backup_dir_not_writable', 500, backup_dir_hint($dir));
     }
     $dir = rtrim($dir, '/');
 
@@ -43,6 +43,37 @@ function backup_dir(): string
         @file_put_contents($dir . '/index.html', '');
     }
     return $dir;
+}
+
+/**
+ * Why the backup directory is unusable, in a form an administrator can act on.
+ *
+ * The common surprise on DSM is open_basedir: Web Station confines PHP to the
+ * document root, and a path outside it does not merely look unwritable, it
+ * looks absent - is_dir() returns false for a directory that plainly exists in
+ * the shell. Reporting the setting turns a guessing game into a fix.
+ */
+function backup_dir_hint(string $dir): string
+{
+    $parts = ['path=' . $dir];
+    $base  = trim((string)ini_get('open_basedir'));
+    if ($base !== '') {
+        $parts[] = 'open_basedir=' . $base;
+        $sep     = PATH_SEPARATOR;
+        $allowed = false;
+        foreach (explode($sep, $base) as $prefix) {
+            if ($prefix !== '' && strpos($dir, rtrim($prefix, '/')) === 0) {
+                $allowed = true;
+                break;
+            }
+        }
+        if (!$allowed) {
+            $parts[] = 'the path is outside open_basedir, so PHP cannot see it';
+        }
+    }
+    $parts[] = 'php user=' . (function_exists('posix_getpwuid') && function_exists('posix_geteuid')
+        ? (posix_getpwuid(posix_geteuid())['name'] ?? '?') : '?');
+    return implode(' | ', $parts);
 }
 
 function backup_safe_name(string $name): string
