@@ -166,4 +166,5 @@ working.
 
 ## Licence
 
-MIT for this code. Open-Meteo data is licensed CC-BY 4.0.
+MIT for this code, see [LICENSE](LICENSE). Open-Meteo data is licensed
+CC-BY 4.0.
