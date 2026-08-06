@@ -150,9 +150,10 @@ function handle_activity_log(): void
 {
     require_role('admin');
     $rows = db()->query(
-        'SELECT l.*, COALESCE(NULLIF(u.full_name, ''), u.username) AS username FROM activity_log l
+        "SELECT l.*, COALESCE(NULLIF(u.full_name, ''), u.username) AS username
+         FROM activity_log l
          LEFT JOIN users u ON u.id = l.user_id
-         ORDER BY l.created_at DESC LIMIT 300'
+         ORDER BY l.created_at DESC LIMIT 300"
     )->fetchAll();
     ok($rows);
 }
