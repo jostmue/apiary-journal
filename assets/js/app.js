@@ -417,7 +417,8 @@ const ROUTES = [
   [/^#\/log$/, viewLog],
   [/^#\/profile$/, viewProfile],
   [/^#\/groups$/, viewGroups],
-  [/^#\/groups\/(\d+)$/, viewGroup]
+  [/^#\/groups\/(\d+)$/, viewGroup],
+  [/^#\/invite\/([a-f0-9]{64})$/, viewInvite]
 ];
 
 async function route() {
@@ -1890,6 +1891,43 @@ async function viewGroup(id) {
 }
 
 /**
+ * An invitation opened while signed in. The signed-out case is renderInvite()
+ * below, which shows the same thing without the application around it.
+ */
+async function viewInvite(token) {
+  let info;
+  try {
+    info = await api('groups/invite_preview', { token });
+  } catch (e) {
+    $('#view').innerHTML = `<div class="alert alert--bad">${esc(t('err.invite_invalid'))}</div>
+      <a class="btn" href="#/groups">${esc(t('groups.title'))}</a>`;
+    return;
+  }
+
+  $('#view').innerHTML =
+    topbar(t('groups.invite_heading')) +
+    `<div class="card">
+       <p>${esc(t('groups.invite_body', { group: info.group, role: t('groups.role_' + info.role) }))}</p>
+       <p class="muted">${esc(t('groups.invite_for', { email: info.email }))}</p>
+       <div class="form-actions" style="margin-top:1rem">
+         <a class="btn" href="#/groups">${esc(t('common.cancel'))}</a>
+         <div style="flex:1"></div>
+         <button class="btn btn--primary" id="accept">${esc(t('groups.invite_accept'))}</button>
+       </div>
+     </div>`;
+
+  $('#accept').addEventListener('click', async () => {
+    try {
+      const r = await api('groups/invite_accept', { token });
+      toast(t('groups.joined', { group: r.group }));
+      await refreshLookups();
+      renderNav();
+      location.hash = '#/groups/' + r.group_id;
+    } catch (e) { showError(e); }
+  });
+}
+
+/**
  * Following an invitation link. Shown before signing in as well, so the
  * recipient can see what they are being asked to join.
  */
@@ -1926,15 +1964,15 @@ async function renderInvite(token) {
 
   $('#cancel').addEventListener('click', () => { location.hash = ''; boot(); });
   $('#accept').addEventListener('click', async () => {
-    // Not signed in yet: the link stays in the address bar and boot() picks
-    // it up again once a session exists.
+    // Not signed in yet. The invitation stays in the address bar, so once
+    // the session exists the router opens viewInvite() and the visitor
+    // carries on where they left off.
     if (!info.signed_in) { renderLogin(); return; }
     try {
       const r = await api('groups/invite_accept', { token });
-      history.replaceState(null, '', location.pathname + location.search);
       toast(t('groups.joined', { group: r.group }));
       await startApp();
-      location.hash = '#/groups';
+      location.hash = '#/groups/' + r.group_id;
     } catch (e) { showError(e); }
   });
 }
