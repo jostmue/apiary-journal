@@ -177,6 +177,18 @@ function bindLangSwitch(after) {
 /* -------------------------------------------------------------- app shell */
 
 async function startApp() {
+  renderShell();
+  await refreshLookups();
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+/**
+ * The frame around the view. It carries translated text of its own - the
+ * subtitle under the app name, the role, the logout and menu buttons - so a
+ * language switch has to redraw it, not just the navigation and the view.
+ */
+function renderShell() {
   document.body.className = '';
   document.body.innerHTML = `
     <div class="app" id="app">
@@ -201,7 +213,7 @@ async function startApp() {
     <dialog id="dialog"></dialog>`;
 
   renderNav();
-  bindLangSwitch(() => { renderNav(); route(); });
+  bindLangSwitch(() => { renderShell(); route(); });
   $('#menu-toggle').addEventListener('click', () => $('#app').classList.toggle('is-open'));
   $('#nav').addEventListener('click', () => $('#app').classList.remove('is-open'));
   $('#logout').addEventListener('click', async () => {
@@ -209,10 +221,6 @@ async function startApp() {
     session.user = null; session.csrf = null;
     renderLogin();
   });
-
-  await refreshLookups();
-  window.addEventListener('hashchange', route);
-  route();
 }
 
 function renderNav() {
@@ -1511,8 +1519,10 @@ async function viewProfile() {
       session.user = data.user;
       setLocale(data.user.locale);
       toast(t('common.saved'));
-      await startApp();
-      location.hash = '#/profile';
+      // Redraw the frame for the new language; startApp() would attach a
+      // second hashchange listener each time.
+      renderShell();
+      route();
     } catch (e) { showError(e); }
   });
 }
