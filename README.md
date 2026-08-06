@@ -127,6 +127,26 @@ anything not listed there cannot be written, whatever the client sends.
    browser can mix a fresh `app.js` with a cached `schema.js`, which fails
    with "… is not defined".
 
+## Working on the code
+
+There is no build step: edit, reload, done. Two things are worth doing once
+after cloning.
+
+Bump the `?v=` marker on the asset URLs in `index.html` whenever you change a
+file under `assets/` - without it a browser can pair a fresh `app.js` with a
+cached `schema.js`, which fails with "… is not defined".
+
+Enable the bundled hook so a commit with unparsable PHP is refused:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It runs `php -l` over the staged PHP files and needs the PHP CLI on PATH (or
+at `C:\php\php.exe` on Windows). Without PHP installed it simply skips.
+This matters more than it sounds: every request loads every file under
+`api/lib/`, so one parse error takes down the entire API, login included.
+
 ## Backup
 
 Two independent layers, use both:

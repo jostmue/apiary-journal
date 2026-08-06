@@ -1,0 +1,27 @@
+#!/bin/sh
+# Reject a commit whose staged PHP does not parse.
+#
+# A single-quoted PHP string containing '' closes early instead of passing an
+# empty string to SQL. That mistake once took down the whole API - every
+# request loads every lib - and "php -l" spots it instantly.
+#
+# Enable with:  git config core.hooksPath .githooks
+
+PHP=$(command -v php || echo /c/php/php.exe)
+[ -x "$PHP" ] || { echo "pre-commit: no php found, skipping syntax check"; exit 0; }
+
+failed=0
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep '\.php$'); do
+    [ -f "$file" ] || continue
+    if ! out=$(git show ":$file" | "$PHP" -l 2>&1); then
+        echo "PHP syntax error in $file:"
+        echo "$out" | sed 's/^/  /'
+        failed=1
+    fi
+done
+
+[ "$failed" -eq 0 ] || {
+    echo
+    echo "Commit refused. Fix the syntax, or bypass with --no-verify."
+    exit 1
+}
