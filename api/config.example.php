@@ -44,6 +44,29 @@ return [
         'installed'       => true,
     ],
 
+    // --- Geocoding (address search for apiary coordinates) -----------------
+    // Nominatim (OpenStreetMap) understands street, house number, postcode
+    // and town. Free and without an API key; its usage policy asks for at
+    // most one request per second, which this app stays far below.
+    'geo' => [
+        'search_url'    => 'https://nominatim.openstreetmap.org/search',
+        'elevation_url' => 'https://api.open-meteo.com/v1/elevation',
+        'language'      => 'de',
+        'timeout'       => 8,
+    ],
+
+    // --- Map ---------------------------------------------------------------
+    // The apiary form can show a click map for picking coordinates. The tiles
+    // are fetched by the BROWSER from the server below, which therefore learns
+    // roughly where your apiaries are. Set enabled = false to keep the address
+    // search only - everything else works unchanged.
+    'map' => [
+        'enabled'     => true,
+        'tile_url'    => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'attribution' => '(c) OpenStreetMap',
+        'max_zoom'    => 19,
+    ],
+
     // --- Weather -----------------------------------------------------------
     'weather' => [
         // Open-Meteo needs no API key. Set enabled = false if the NAS has no

@@ -88,8 +88,9 @@ administrator and writes `api/config.php`.
 
 Open `http://<nas-ip>:8080/` and sign in.
 
-1. **Apiaries** → *New apiary*. Enter a name, then use the place search to fill
-   in the coordinates - they drive the automatic weather.
+1. **Apiaries** → *New apiary*. Enter a name, then search for the address
+   (street, house number, postcode all work) or click the map to set the
+   coordinates - they drive the automatic weather.
 2. **Colonies** → *New colony*. Pick the apiary, give the colony a number,
    race and hive type.
 3. Open the colony and add the **queen** on the Queens tab. The birth year

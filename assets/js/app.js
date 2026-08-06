@@ -88,6 +88,7 @@ async function boot() {
   try {
     const me = await api('auth/me');
     session.weatherEnabled = !!me.weather;
+    session.map = me.map || null;   // null when map tiles are switched off
     if (me.user) {
       session.user = me.user;
       session.csrf = me.csrf;
@@ -655,6 +656,168 @@ function refPairs(ref) {
   return [];
 }
 
+/* ------------------------------------------------------------------- map */
+/* A minimal slippy map: enough to pan, zoom and click a coordinate, without
+   pulling in a mapping library. Tiles come from the server configured in
+   api/config.php; if that is switched off, session.map is null and the whole
+   block is left out of the form. */
+
+const TILE = 256;
+const lon2x = (lon, z) => (lon + 180) / 360 * 2 ** z;
+const lat2y = (lat, z) => {
+  const r = lat * Math.PI / 180;
+  return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 2 ** z;
+};
+const x2lon = (x, z) => x / 2 ** z * 360 - 180;
+const y2lat = (y, z) => {
+  const n = Math.PI - 2 * Math.PI * y / 2 ** z;
+  return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+};
+
+function createMiniMap(box, { lat, lon, zoom, onPick }) {
+  const cfg = session.map;
+  const layer = box.querySelector('.map__layer');
+  const pin = box.querySelector('.map__pin');
+  let z = zoom;
+  let cx = lon2x(lon, z);          // centre, in fractional tile units
+  let cy = lat2y(lat, z);
+  let marker = null;               // {lat, lon} once something is picked
+
+  const draw = () => {
+    const w = box.clientWidth || 320;
+    const h = box.clientHeight || 260;
+    const n = 2 ** z;
+    const cols = Math.ceil(w / TILE) + 2;
+    const rows = Math.ceil(h / TILE) + 2;
+    const x0 = Math.floor(cx - cols / 2);
+    const y0 = Math.floor(cy - rows / 2);
+
+    let html = '';
+    for (let dy = 0; dy <= rows; dy++) {
+      for (let dx = 0; dx <= cols; dx++) {
+        const tx = x0 + dx, ty = y0 + dy;
+        if (ty < 0 || ty >= n) continue;
+        const wrapped = ((tx % n) + n) % n;   // the world repeats sideways
+        const left = Math.round((tx - cx) * TILE + w / 2);
+        const top = Math.round((ty - cy) * TILE + h / 2);
+        const url = cfg.tile_url.replace('{z}', z).replace('{x}', wrapped).replace('{y}', ty);
+        // No loading="lazy" here: every tile in the grid is on screen by
+        // construction, and lazy loading leaves blank patches while panning.
+        html += `<img src="${esc(url)}" alt="" draggable="false"
+                      style="left:${left}px;top:${top}px">`;
+      }
+    }
+    layer.style.transform = '';
+    layer.innerHTML = html;
+
+    if (marker) {
+      pin.hidden = false;
+      pin.style.left = Math.round((lon2x(marker.lon, z) - cx) * TILE + w / 2) + 'px';
+      pin.style.top = Math.round((lat2y(marker.lat, z) - cy) * TILE + h / 2) + 'px';
+    } else {
+      pin.hidden = true;
+    }
+  };
+
+  /* Dragging moves the tile layer with a transform and only re-tiles on
+     release, so panning stays smooth on a NAS-served page. */
+  let drag = null;
+  box.addEventListener('pointerdown', e => {
+    if (e.target.closest('.map__zoom')) return;
+    drag = { x: e.clientX, y: e.clientY, dx: 0, dy: 0 };
+    box.setPointerCapture(e.pointerId);
+  });
+  box.addEventListener('pointermove', e => {
+    if (!drag) return;
+    drag.dx = e.clientX - drag.x;
+    drag.dy = e.clientY - drag.y;
+    layer.style.transform = `translate(${drag.dx}px, ${drag.dy}px)`;
+    if (pin && !pin.hidden) pin.style.transform = `translate(calc(-50% + ${drag.dx}px), calc(-100% + ${drag.dy}px))`;
+  });
+  box.addEventListener('pointerup', e => {
+    if (!drag) return;
+    const moved = Math.abs(drag.dx) + Math.abs(drag.dy);
+    const d = drag;
+    drag = null;
+    if (pin) pin.style.transform = '';
+    if (moved > 4) {
+      cx -= d.dx / TILE;
+      cy -= d.dy / TILE;
+      draw();
+      return;
+    }
+    // A click, not a drag: pick the coordinate under the pointer.
+    const r = box.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    const picked = {
+      lat: y2lat(cy + (py - r.height / 2) / TILE, z),
+      lon: x2lon(cx + (px - r.width / 2) / TILE, z)
+    };
+    marker = picked;
+    draw();
+    onPick(picked);
+  });
+  box.addEventListener('pointercancel', () => { drag = null; layer.style.transform = ''; });
+
+  box.addEventListener('wheel', e => {
+    e.preventDefault();
+    setZoom(z + (e.deltaY < 0 ? 1 : -1));
+  }, { passive: false });
+
+  function setZoom(next) {
+    const clamped = Math.max(2, Math.min(cfg.max_zoom || 19, next));
+    if (clamped === z) return;
+    const lat = y2lat(cy, z), lon = x2lon(cx, z);
+    z = clamped;
+    cx = lon2x(lon, z);
+    cy = lat2y(lat, z);
+    draw();
+  }
+  box.querySelectorAll('.map__zoom button').forEach(b =>
+    b.addEventListener('click', () => setZoom(z + Number(b.dataset.dz))));
+
+  /* The box has no width while the dialog is still being built, and it
+     changes again when the window is resized - re-tile whenever that
+     happens instead of relying on a single well-timed draw. */
+  let lastW = 0, lastH = 0;
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      if (box.clientWidth === lastW && box.clientHeight === lastH) return;
+      lastW = box.clientWidth;
+      lastH = box.clientHeight;
+      if (lastW > 0) draw();
+    }).observe(box);
+  }
+
+  const api = {
+    draw,
+    goTo(nlat, nlon, nzoom) {
+      if (nzoom) z = Math.max(2, Math.min(cfg.max_zoom || 19, nzoom));
+      cx = lon2x(nlon, z);
+      cy = lat2y(nlat, z);
+      marker = { lat: nlat, lon: nlon };
+      draw();
+    },
+    setMarker(nlat, nlon) { marker = { lat: nlat, lon: nlon }; draw(); }
+  };
+  draw();
+  return api;
+}
+
+function mapBoxHtml() {
+  if (!session.map) return '';
+  return `<div class="map" id="geo-map">
+      <div class="map__layer"></div>
+      <div class="map__pin" hidden></div>
+      <div class="map__zoom">
+        <button type="button" data-dz="1" aria-label="+">+</button>
+        <button type="button" data-dz="-1" aria-label="&minus;">&minus;</button>
+      </div>
+      <div class="map__attr">${esc(session.map.attribution || '')}</div>
+    </div>
+    <p class="muted map__hint">${esc(t('apiaries.map_hint'))}</p>`;
+}
+
 function fieldHtml(f, record) {
   if (f.section) return `<div class="fieldset-title">${esc(t(f.section))}</div>`;
   if (f.t === 'weather') return weatherBlockHtml(record);
@@ -666,7 +829,8 @@ function fieldHtml(f, record) {
           <button type="button" class="btn" id="geo-go">${esc(t('common.search'))}</button>
         </span>
       </label>
-      <div id="geo-results" class="muted"></div>
+      <div id="geo-results" class="geo-hits"></div>
+      ${mapBoxHtml()}
     </div>`;
   }
 
@@ -810,28 +974,39 @@ function openForm(entity, record) {
       if (isNew) setTimeout(() => fetchWeather(true), 150);
     }
 
-    // --- place search (apiaries) -----------------------------------------
+    // --- address search and click map (apiaries) --------------------------
     const geoGo = $('#geo-go', form);
     if (geoGo) {
+      const latInput = form.querySelector('[name="latitude"]');
+      const lonInput = form.querySelector('[name="longitude"]');
+      const out = $('#geo-results', form);
+      let miniMap = null;
+
+      const setCoords = (lat, lon, alt) => {
+        latInput.value = Number(lat).toFixed(6);
+        lonInput.value = Number(lon).toFixed(6);
+        if (alt != null) form.querySelector('[name="altitude"]').value = Math.round(alt);
+      };
+
       const runSearch = async () => {
         const q = $('#geo-q', form).value.trim();
         if (!q) return;
-        const out = $('#geo-results', form);
         out.textContent = t('common.loading');
         try {
           const hits = await api('geo/search', { q });
           out.innerHTML = hits.length
-            ? hits.map((h, i) => `<button type="button" class="btn btn--sm" data-geo="${i}">${esc(h.name)}${h.admin ? ', ' + esc(h.admin) : ''}</button>`).join(' ')
-            : `<span>${esc(t('common.no_records'))}</span>`;
+            ? hits.map((h, i) => `<button type="button" class="geo-hit" data-geo="${i}">
+                 <b>${esc(h.name)}</b>${h.admin ? `<span>${esc(h.admin)}</span>` : ''}</button>`).join('')
+            : `<span class="muted">${esc(t('apiaries.geo_none'))}</span>`;
           $$('[data-geo]', out).forEach(b => b.addEventListener('click', () => {
             const h = hits[Number(b.dataset.geo)];
-            form.querySelector('[name="latitude"]').value = h.latitude ?? '';
-            form.querySelector('[name="longitude"]').value = h.longitude ?? '';
-            if (h.altitude != null) form.querySelector('[name="altitude"]').value = Math.round(h.altitude);
+            setCoords(h.latitude, h.longitude, h.altitude);
             if (!form.querySelector('[name="address"]').value) {
               form.querySelector('[name="address"]').value = [h.name, h.admin].filter(Boolean).join(', ');
             }
-            out.textContent = '';
+            // Zoom in far enough that the exact spot can be corrected by hand.
+            miniMap?.goTo(h.latitude, h.longitude, 16);
+            out.innerHTML = '';
           }));
         } catch (e) {
           out.textContent = t(e.message);
@@ -841,6 +1016,36 @@ function openForm(entity, record) {
       $('#geo-q', form).addEventListener('keydown', ev => {
         if (ev.key === 'Enter') { ev.preventDefault(); runSearch(); }
       });
+
+      const mapBox = $('#geo-map', form);
+      if (mapBox && session.map) {
+        const has = latInput.value && lonInput.value;
+        // Fall back to an apiary that already has coordinates, so a second
+        // apiary starts near the first one instead of somewhere in the sea.
+        const near = state.apiaries.find(a => a.latitude != null && a.longitude != null);
+        const start = has
+          ? { lat: Number(latInput.value), lon: Number(lonInput.value), z: 16 }
+          : near
+            ? { lat: Number(near.latitude), lon: Number(near.longitude), z: 11 }
+            : { lat: 51.16, lon: 10.45, z: 5 };
+
+        miniMap = createMiniMap(mapBox, {
+          lat: start.lat, lon: start.lon, zoom: start.z,
+          onPick: p => setCoords(p.lat, p.lon)
+        });
+        if (has) miniMap.setMarker(start.lat, start.lon);
+
+        // Typing coordinates by hand keeps the map in sync.
+        [latInput, lonInput].forEach(i => i.addEventListener('change', () => {
+          const la = Number(latInput.value), lo = Number(lonInput.value);
+          if (Number.isFinite(la) && Number.isFinite(lo) && latInput.value && lonInput.value) {
+            miniMap.goTo(la, lo);
+          }
+        }));
+        // The dialog is not laid out yet while we build it, so the first
+        // tiling has to wait for its real size.
+        requestAnimationFrame(() => miniMap.draw());
+      }
     }
 
     // --- submit -----------------------------------------------------------

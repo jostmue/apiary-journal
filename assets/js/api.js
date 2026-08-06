@@ -7,7 +7,8 @@ const API_URL = 'api/index.php';
 const session = {
   user: null,
   csrf: null,
-  weatherEnabled: false
+  weatherEnabled: false,
+  map: null            // tile config from auth/me, null when disabled
 };
 
 async function api(route, body) {

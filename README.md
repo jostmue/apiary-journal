@@ -16,7 +16,8 @@ Center. No build step, no external service, no API key.
 
 **Colonies and apiaries**
 - Apiaries with address, coordinates, elevation and forage notes. Coordinates
-  can be looked up by place name.
+  come from an address search (street, house number, postcode) or from
+  clicking a map.
 - Colonies with number, race, origin, hive type, frame size, box count,
   establishment date, status and parent colony (so splits stay traceable).
 - Queen records per colony: birth year, marking colour, mating type, breeder,
@@ -95,7 +96,7 @@ api/config.php          created by the installer, never in version control
 api/lib/core.php        config, PDO, JSON helpers
 api/lib/auth.php        sessions, login, CSRF, roles
 api/lib/entities.php    entity definitions and generic list/save/delete
-api/lib/weather.php     Open-Meteo lookup and cache, place search
+api/lib/weather.php     Open-Meteo lookup and cache, address search
 api/lib/reports.php     report engine, CSV export, dashboard figures
 api/lib/backup.php      snapshots, restore, SQL export
 api/lib/users.php       user management and profile
@@ -166,6 +167,26 @@ endpoint, older ones the archive endpoint. Values land in the inspection record
 and stay editable. If the NAS has no outbound internet access, set
 `weather.enabled` to `false` in `api/config.php`; everything else keeps
 working.
+
+## Coordinates: address search and map
+
+An apiary needs coordinates, because they drive the weather lookup. Two ways
+to set them, and they work together:
+
+- **Address search** via [Nominatim](https://nominatim.openstreetmap.org/)
+  (OpenStreetMap, free, no key). It understands street, house number, postcode
+  and town. Picking a hit also fills in the elevation, looked up from
+  Open-Meteo. Configured under `geo` in `api/config.php`; its usage policy
+  asks for at most one request per second, which this app stays far below.
+- **Click map** in the apiary form: drag to pan, scroll or the buttons to
+  zoom, click to set the coordinate. Fine-tune the exact hive spot after the
+  address search has taken you to the street.
+
+The map is roughly 120 lines in `assets/js/app.js` - no mapping library, no
+build step. Tiles are loaded **by the browser** from the server set in
+`map.tile_url`, which therefore learns roughly where your apiaries are. Set
+`map.enabled` to `false` to drop the map and keep the address search only;
+the form degrades cleanly.
 
 ## Licence
 

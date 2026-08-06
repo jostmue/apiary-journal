@@ -41,12 +41,18 @@ switch ($route) {
         break;
 
     case 'auth/me':
-        $u = current_user();
+        $u   = current_user();
+        $map = config()['map'] ?? [];
         ok([
             'user'    => $u ?: null,
             'csrf'    => $u ? csrf_token() : null,
             'locale'  => $u['locale'] ?? (config()['app']['default_locale'] ?? 'de'),
             'weather' => (bool)(config()['weather']['enabled'] ?? false),
+            'map'     => empty($map['enabled']) ? null : [
+                'tile_url'    => $map['tile_url'] ?? '',
+                'attribution' => $map['attribution'] ?? '',
+                'max_zoom'    => (int)($map['max_zoom'] ?? 19),
+            ],
         ]);
         break;
 

@@ -176,29 +176,111 @@ function handle_weather(): void
     ok($w);
 }
 
-/** POST /api?r=geo/search  { q } - find coordinates for a place name. */
+/**
+ * Geocoding settings, with defaults so an older config.php keeps working.
+ *
+ * Nominatim (OpenStreetMap) is used rather than the Open-Meteo geocoder,
+ * because the latter only knows place names - it has no streets and no
+ * postcodes, so an address search silently landed on a similarly named
+ * village instead.
+ */
+function geo_config(): array
+{
+    return array_merge([
+        'search_url'    => 'https://nominatim.openstreetmap.org/search',
+        'elevation_url' => 'https://api.open-meteo.com/v1/elevation',
+        'language'      => 'de',
+        'timeout'       => 8,
+    ], config()['geo'] ?? []);
+}
+
+/**
+ * Ask Open-Meteo for the ground elevation of all hits in one request, so the
+ * altitude field can be filled in. Best effort: on any failure the hits are
+ * returned unchanged.
+ */
+function geo_add_elevation(array $hits): array
+{
+    if (!$hits || !(config()['weather']['enabled'] ?? false)) {
+        return $hits;
+    }
+    $g   = geo_config();
+    $url = $g['elevation_url'] . '?' . http_build_query([
+        'latitude'  => implode(',', array_column($hits, 'latitude')),
+        'longitude' => implode(',', array_column($hits, 'longitude')),
+    ]);
+    $resp = http_get_json($url, (int)$g['timeout']);
+    foreach (($resp['elevation'] ?? []) as $i => $m) {
+        if (isset($hits[$i]) && $m !== null) {
+            $hits[$i]['altitude'] = (int)round((float)$m);
+        }
+    }
+    return $hits;
+}
+
+/** POST /api?r=geo/search  { q } - find coordinates for an address or place. */
 function handle_geo_search(): void
 {
     require_login();
-    $cfg = config()['weather'];
-    $q   = trim((string)param('q', ''));
+    $g = geo_config();
+    $q = trim((string)param('q', ''));
     if ($q === '') {
         fail('missing_query');
     }
-    $url  = $cfg['geocode_url'] . '?' . http_build_query(['name' => $q, 'count' => 8, 'language' => 'de', 'format' => 'json']);
-    $resp = http_get_json($url, (int)($cfg['timeout'] ?? 8));
-    if (!$resp) {
-        fail('weather_unavailable', 503);
+
+    $url  = $g['search_url'] . '?' . http_build_query([
+        'q'               => $q,
+        'format'          => 'jsonv2',
+        'limit'           => 8,
+        'addressdetails'  => 1,
+        'accept-language' => $g['language'],
+    ]);
+    $resp = http_get_json($url, (int)$g['timeout']);
+    // An empty result list is a valid answer; only a failed call is an error.
+    if ($resp === null) {
+        fail('geocode_unavailable', 503);
     }
-    $out = [];
-    foreach (($resp['results'] ?? []) as $r) {
+
+    $out  = [];
+    $seen = [];
+    foreach ($resp as $r) {
+        if (!isset($r['lat'], $r['lon'])) {
+            continue;
+        }
+        // display_name leads with whatever sits at the address ("DN Nagel-
+        // studio, 1, Kirchenstraße, ..."), so the label is built from the
+        // structured parts instead: street first, administrative tail after.
+        $a      = $r['address'] ?? [];
+        $street = trim(($a['road'] ?? '') . ' ' . ($a['house_number'] ?? ''));
+        $place  = $a['city'] ?? $a['town'] ?? $a['village'] ?? $a['municipality'] ?? ($a['hamlet'] ?? '');
+        $parts  = array_map('trim', explode(',', (string)($r['display_name'] ?? '')));
+
+        $name = $street !== '' ? $street : (string)($r['name'] ?? ($parts[0] ?? ''));
+        if ($name === '') {
+            continue;
+        }
+        $admin = implode(', ', array_filter([
+            trim(($a['postcode'] ?? '') . ' ' . $place),
+            $a['state'] ?? null,
+            $a['country'] ?? null,
+        ]));
+
+        // Nominatim returns the building and whatever sits inside it as
+        // separate hits a few metres apart. They carry the same label and are
+        // therefore indistinguishable in the list, so keep the first one.
+        $key = $name . '|' . $admin;
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+
         $out[] = [
-            'name'      => $r['name'] ?? '',
-            'admin'     => trim(($r['admin1'] ?? '') . ' ' . ($r['country'] ?? '')),
-            'latitude'  => $r['latitude'] ?? null,
-            'longitude' => $r['longitude'] ?? null,
-            'altitude'  => $r['elevation'] ?? null,
+            'name'      => $name,
+            'admin'     => $admin,
+            'latitude'  => (float)$r['lat'],
+            'longitude' => (float)$r['lon'],
+            'altitude'  => null,
         ];
     }
-    ok($out);
+    ok(geo_add_elevation($out));
 }
