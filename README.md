@@ -40,9 +40,11 @@ No build step, no dependencies, no API key.
 - **Tasks** – with due date, priority, assignee, per colony or apiary.
 
 **Everything else**
-- User management with three roles: administrator, beekeeper (write access),
-  viewer (read only). Sessions, bcrypt password hashes, CSRF protection, audit
-  log, and a forgotten-password link when mail is configured.
+- Groups: share apiaries and colonies with other beekeepers, or keep them
+  private. Roles apply per group (owner, member, viewer); members join by
+  e-mail invitation. Administrators manage accounts, not other people's data.
+- Sessions, bcrypt password hashes, CSRF protection, login rate limiting, an
+  audit log, and a forgotten-password link when mail is configured.
 - Automatic weather per inspection from Open-Meteo, using the coordinates of
   the apiary the colony stands on. Past entries use the weather archive, so a
   record you type in three weeks late still gets the right weather. Responses
@@ -101,6 +103,8 @@ api/lib/weather.php     Open-Meteo lookup and cache, address search
 api/lib/reports.php     report engine and dashboard figures
 api/lib/backup.php      snapshots, restore, SQL export
 api/lib/users.php       user management and profile
+api/lib/access.php      the single rule for who may see and change what
+api/lib/groups.php      groups, members and invitations
 api/lib/recovery.php    forgotten password: request a link, set a new password
 api/lib/mail.php        mail delivery, PHP mail() or a direct SMTP session
 api/lib/migrate.php     schema version and migration steps
@@ -134,6 +138,54 @@ anything not listed there cannot be written, whatever the client sends.
 5. Bump the `?v=` marker on the asset URLs in `index.html`. Without it a
    browser can mix a fresh `app.js` with a cached `schema.js`, which fails
    with "… is not defined".
+
+## Who sees what
+
+Every apiary and every colony has an owner and, optionally, a group it is
+shared with. Inspections, feedings, treatments, harvests and events take their
+visibility from the colony they belong to, so there is one rule rather than one
+per record type:
+
+> You see a record if you own the apiary or colony it hangs off, or if that
+> apiary or colony is shared with a group you belong to.
+
+Anything not put into a group is private. That is the default for everything
+you create.
+
+Sharing is set separately on apiaries and on colonies, which is what a club
+apiary needs: the site belongs to the group so everyone can find it, while the
+colonies standing there stay with their individual keepers - or the other way
+round.
+
+**Roles are per group**, not per account:
+
+| Role | May |
+|------|-----|
+| Owner | manage the group, invite and remove members, change roles |
+| Member | create and change records in the group |
+| Viewer | read only |
+
+Your own records are always yours to change, whatever role you hold anywhere.
+The only thing an account itself carries is whether it is an administrator -
+and that is about managing accounts and the installation, **not** about seeing
+data. An administrator has no access to other people's journals.
+
+**Joining** happens by e-mail invitation, sent by a group owner. There is
+deliberately no way to search for users: with private accounts a directory of
+everyone registered here would defeat the point. An invitation reaches someone
+without an account too.
+
+**Leaving** takes nothing away. The apiaries and colonies you had shared become
+private to you again, and the group stops seeing them immediately. Records
+other members wrote at your colonies stay with those colonies, because they
+belong to the colony rather than to whoever typed them. Deleting a group works
+the same way: the records survive and turn private.
+
+**Upgrading an existing installation** does not change what anyone can see. The
+migration gives every existing row an owner and puts everything into one group
+containing all existing accounts, so the journal looks exactly as it did.
+Tightening things up is a decision you make afterwards, not one the update
+makes for you.
 
 ## Running it on an ordinary web server
 
