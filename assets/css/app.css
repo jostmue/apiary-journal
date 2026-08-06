@@ -150,6 +150,10 @@ label > input, label > select, label > textarea { margin-top: .2rem; }
 .stat__value { font-family: var(--display); font-size: 1.9rem; line-height: 1; }
 .stat__label { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: .35rem; }
 .stat--warn .stat__value { color: var(--alert); }
+/* Figures that link to the page they were counted from. */
+a.stat--link { display: block; text-decoration: none; color: inherit; }
+a.stat--link:hover { border-color: var(--honey); background: #FFFDF7; }
+a.stat--link:focus-visible { outline: 2px solid var(--honey); outline-offset: 2px; }
 
 /* Colony card: the left bar carries the queen's year marking colour. */
 .colony {
@@ -193,13 +197,18 @@ table.data { width: 100%; border-collapse: collapse; font-size: .88rem; }
 table.data th {
   text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted); font-weight: 600; padding: .5rem .55rem; border-bottom: 1px solid var(--line);
-  /* Headings may wrap: a two-line "Königin gesehen" is far better than a
-     table that has to be scrolled sideways. */
   line-height: 1.25;
 }
+/* Headings wrap rather than widen their column: a two-line "Besetzte
+   Wabengassen" beats a table that has to be scrolled sideways. Single long
+   words are never broken, they simply exceed the cap. */
+.th-label { display: inline-block; max-width: 11ch; }
 table.data td { padding: .5rem .55rem; border-bottom: 1px solid #EFEDE2; vertical-align: top; }
 table.data tr:hover td { background: #FAF9F2; }
-table.data td.num, table.data th.num { text-align: right; font-family: var(--mono); }
+/* Only the values are monospaced. Applying it to the heading too made
+   numeric columns look like a different, smaller typeface than the rest. */
+table.data td.num, table.data th.num { text-align: right; }
+table.data td.num { font-family: var(--mono); }
 table.data td.date { font-family: var(--mono); white-space: nowrap; font-size: .82rem; }
 /* The time sits under its date instead of widening the column. */
 .cell-sub { display: block; color: var(--muted); font-size: .92em; }

@@ -305,20 +305,27 @@ async function viewDashboard() {
     api('tasks/list', { status: 'open', limit: 8 })
   ]);
 
-  const stat = (value, label, warn = false) =>
-    `<div class="stat${warn ? ' stat--warn' : ''}"><div class="stat__value">${esc(value)}</div><div class="stat__label">${esc(label)}</div></div>`;
+  // Each figure links to the page it was counted from.
+  const stat = (value, label, { href = null, warn = false } = {}) => {
+    const inner = `<div class="stat__value">${esc(value)}</div>
+                   <div class="stat__label">${esc(label)}</div>`;
+    const cls = `stat${warn ? ' stat--warn' : ''}${href ? ' stat--link' : ''}`;
+    return href
+      ? `<a class="${cls}" href="${esc(href)}">${inner}</a>`
+      : `<div class="${cls}">${inner}</div>`;
+  };
 
   $('#view').innerHTML =
     topbar(t('dashboard.title'),
       canWrite() ? `<button class="btn btn--primary" data-new="inspections">${esc(t('inspections.new'))}</button>` : '') +
     `<div class="grid grid--stats">
-       ${stat(stats.colonies_active, t('dashboard.active_colonies'))}
-       ${stat(stats.apiaries, t('dashboard.apiaries'))}
-       ${stat(stats.inspections_year, t('dashboard.inspections_year', { year: stats.year }))}
-       ${stat(stats.harvest_year_kg, t('dashboard.harvest_year', { year: stats.year }))}
+       ${stat(stats.colonies_active, t('dashboard.active_colonies'), { href: '#/colonies' })}
+       ${stat(stats.apiaries, t('dashboard.apiaries'), { href: '#/apiaries' })}
+       ${stat(stats.inspections_year, t('dashboard.inspections_year', { year: stats.year }), { href: '#/records/inspections' })}
+       ${stat(stats.harvest_year_kg, t('dashboard.harvest_year', { year: stats.year }), { href: '#/records/harvests' })}
        ${feedStats(stats, stat)}
-       ${stat(stats.tasks_open, t('dashboard.tasks_open'))}
-       ${stats.tasks_overdue ? stat(stats.tasks_overdue, t('dashboard.tasks_overdue'), true) : ''}
+       ${stat(stats.tasks_open, t('dashboard.tasks_open'), { href: '#/tasks' })}
+       ${stats.tasks_overdue ? stat(stats.tasks_overdue, t('dashboard.tasks_overdue'), { href: '#/tasks', warn: true }) : ''}
      </div>
 
      <div class="card" style="margin-top:1rem">
@@ -352,8 +359,9 @@ function feedStats(stats, stat) {
   const kg = Number(stats.feed_year_kg) || 0;
   const l = Number(stats.feed_year_l) || 0;
   const out = [];
-  if (kg > 0 || l === 0) out.push(stat(kg, t('dashboard.feed_year_kg', { year: stats.year })));
-  if (l > 0) out.push(stat(l, t('dashboard.feed_year_l', { year: stats.year })));
+  const link = { href: '#/records/feedings' };
+  if (kg > 0 || l === 0) out.push(stat(kg, t('dashboard.feed_year_kg', { year: stats.year }), link));
+  if (l > 0) out.push(stat(l, t('dashboard.feed_year_l', { year: stats.year }), link));
   return out.join('');
 }
 
@@ -607,7 +615,8 @@ function recordTable(entity, rows, skip = []) {
     const label = c.kind === 'datetime'
       ? `${esc(t('common.date'))}<br>${esc(t('common.time'))}`
       : esc(t(c.label || ('field.' + c.n)));
-    return `<th class="${cellClass(c)}">${label}</th>`;
+    // The span is what caps the width: a table cell ignores max-width.
+    return `<th class="${cellClass(c)}"><span class="th-label">${label}</span></th>`;
   }).join('');
   const body = rows.map(r => `<tr data-id="${r.id}">
       ${cols.map(c => `<td class="${cellClass(c)}">${cellValue(r, c)}</td>`).join('')}
