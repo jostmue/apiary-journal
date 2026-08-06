@@ -71,8 +71,7 @@ const STRINGS = {
     'common.total': 'Summe',
     'common.menu': 'Menü',
 
-    'dashboard.title': 'Übersicht',
-    'dashboard.hello': 'Guten Tag, {name}',
+    'dashboard.title': 'Am Bienenstand',
     'dashboard.active_colonies': 'Aktive Völker',
     'dashboard.apiaries': 'Standorte',
     'dashboard.inspections_year': 'Durchsichten {year}',
@@ -528,8 +527,7 @@ const STRINGS = {
     'common.total': 'Total',
     'common.menu': 'Menu',
 
-    'dashboard.title': 'Overview',
-    'dashboard.hello': 'Hello {name}',
+    'dashboard.title': 'At the apiary',
     'dashboard.active_colonies': 'Active colonies',
     'dashboard.apiaries': 'Apiaries',
     'dashboard.inspections_year': 'Inspections {year}',

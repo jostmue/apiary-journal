@@ -300,7 +300,7 @@ async function viewDashboard() {
     `<div class="stat${warn ? ' stat--warn' : ''}"><div class="stat__value">${esc(value)}</div><div class="stat__label">${esc(label)}</div></div>`;
 
   $('#view').innerHTML =
-    topbar(t('dashboard.hello', { name: session.user.full_name || session.user.username }),
+    topbar(t('dashboard.title'),
       canWrite() ? `<button class="btn btn--primary" data-new="inspections">${esc(t('inspections.new'))}</button>` : '') +
     `<div class="grid grid--stats">
        ${stat(stats.colonies_active, t('dashboard.active_colonies'))}
