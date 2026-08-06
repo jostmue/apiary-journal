@@ -1,6 +1,6 @@
 <?php
 /**
- * Beekeeping Journal - configuration template.
+ * Apiary-Journal - configuration template.
  *
  * Copy this file to config.php and adjust the values.
  * config.php is never delivered by the web server (see .htaccess) and should

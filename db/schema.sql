@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- Beekeeping Journal - database schema (MariaDB 10.x, DSM Package Center)
+-- Apiary-Journal - database schema (MariaDB 10.x, DSM Package Center)
 -- Charset: utf8mb4 so that notes may contain any unicode character.
 -- ---------------------------------------------------------------------------
 

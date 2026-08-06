@@ -22,7 +22,7 @@ function http_get_json(string $url, int $timeout): ?array
             CURLOPT_TIMEOUT        => $timeout,
             CURLOPT_CONNECTTIMEOUT => $timeout,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_USERAGENT      => 'BeekeepingJournal/1.0',
+            CURLOPT_USERAGENT      => 'ApiaryJournal/1.0',
         ]);
         $body = curl_exec($ch);
         $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -31,7 +31,7 @@ function http_get_json(string $url, int $timeout): ?array
             return null;
         }
     } else {
-        $ctx  = stream_context_create(['http' => ['timeout' => $timeout, 'header' => "User-Agent: BeekeepingJournal/1.0\r\n"]]);
+        $ctx  = stream_context_create(['http' => ['timeout' => $timeout, 'header' => "User-Agent: ApiaryJournal/1.0\r\n"]]);
         $body = @file_get_contents($url, false, $ctx);
         if ($body === false) {
             return null;

@@ -178,11 +178,11 @@ function backup_restore(array $data, bool $keepUsers): void
 function backup_sql_stream(): void
 {
     $pdo  = db();
-    $name = 'beekeeping-' . date('Y-m-d-His') . '.sql';
+    $name = 'apiary-journal-' . date('Y-m-d-His') . '.sql';
     header('Content-Type: application/sql; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $name . '"');
 
-    echo "-- Beekeeping Journal SQL dump, " . date('c') . "\n";
+    echo "-- Apiary-Journal SQL dump, " . date('c') . "\n";
     echo "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS = 0;\n\n";
     foreach (BACKUP_TABLES as $t) {
         echo "-- table {$t}\nDELETE FROM `{$t}`;\n";

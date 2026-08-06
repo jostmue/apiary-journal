@@ -1,4 +1,4 @@
-# Beekeeping Journal
+# Apiary-Journal
 
 A self-hosted beekeeping record book for a Synology NAS. It keeps track of
 apiaries, colonies and queens, and documents everything you do at the hive:

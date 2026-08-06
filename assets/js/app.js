@@ -1,4 +1,4 @@
-/* Beekeeping Journal - application shell, views and forms. */
+/* Apiary-Journal - application shell, views and forms. */
 
 /* ------------------------------------------------------------------ utils */
 

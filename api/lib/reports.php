@@ -310,7 +310,7 @@ function handle_report_csv(): void
     $filter = json_decode((string)($_GET['filter'] ?? '[]'), true) ?: [];
     $rows   = report_query($filter);
 
-    $name = 'beekeeping-report-' . date('Y-m-d-His') . '.csv';
+    $name = 'apiary-journal-report-' . date('Y-m-d-His') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $name . '"');
     $out = fopen('php://output', 'w');

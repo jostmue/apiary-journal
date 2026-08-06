@@ -149,14 +149,14 @@ if ($post) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Beekeeping Journal - setup</title>
+<title>Apiary-Journal - setup</title>
 <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body class="setup-page">
 <main class="setup">
   <header class="setup__head">
     <span class="brand__mark" aria-hidden="true"></span>
-    <h1>Beekeeping Journal</h1>
+    <h1>Apiary-Journal</h1>
     <p class="muted">One-time setup. Delete <code>install.php</code> when you are finished.</p>
   </header>
 

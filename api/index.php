@@ -1,6 +1,6 @@
 <?php
 /**
- * Beekeeping Journal - single API entry point.
+ * Apiary-Journal - single API entry point.
  *
  * All calls go to  api/index.php?r=<group>/<action>  which works on Apache
  * and nginx alike, so no rewrite rules are needed on DSM's Web Station.
