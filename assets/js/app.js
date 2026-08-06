@@ -309,7 +309,7 @@ async function viewDashboard() {
        ${stat(stats.apiaries, t('dashboard.apiaries'))}
        ${stat(stats.inspections_year, t('dashboard.inspections_year', { year: stats.year }))}
        ${stat(stats.harvest_year_kg, t('dashboard.harvest_year', { year: stats.year }))}
-       ${stat(stats.feed_year, t('dashboard.feed_year', { year: stats.year }))}
+       ${feedStats(stats, stat)}
        ${stat(stats.tasks_open, t('dashboard.tasks_open'))}
        ${stats.tasks_overdue ? stat(stats.tasks_overdue, t('dashboard.tasks_overdue'), true) : ''}
      </div>
@@ -339,13 +339,84 @@ function taskLine(task) {
     </span></li>`;
 }
 
+/* Syrup is fed by the litre, fondant by the kilo. Show whichever units were
+   actually used, and fall back to a single kg tile when nothing was fed. */
+function feedStats(stats, stat) {
+  const kg = Number(stats.feed_year_kg) || 0;
+  const l = Number(stats.feed_year_l) || 0;
+  const out = [];
+  if (kg > 0 || l === 0) out.push(stat(kg, t('dashboard.feed_year_kg', { year: stats.year })));
+  if (l > 0) out.push(stat(l, t('dashboard.feed_year_l', { year: stats.year })));
+  return out.join('');
+}
+
+/* A one-line summary of a record, built here rather than in SQL: only the
+   browser knows that "syrup_3_2" is called "Zuckersirup 3:2". Values that
+   speak for themselves are shown bare; ambiguous numbers get their label. */
+function recordSummary(row) {
+  const val = n => {
+    const v = row[n];
+    return v === null || v === undefined || v === '' ? null : v;
+  };
+  const num = n => {
+    const v = val(n);
+    return v === null ? null : String(v).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  };
+  const opt = (group, n) => (val(n) === null ? null : optLabel(group, row[n]));
+  const labelled = (n, text) => (text === null ? null : `${t('field.' + n)}: ${text}`);
+  const amount = (n, unitOpt) => {
+    const a = num(n);
+    if (a === null) return null;
+    const u = unitOpt ? opt('unit', unitOpt) : null;
+    return u ? `${a} ${u}` : a;
+  };
+
+  let parts;
+  switch (row.record_type) {
+    case 'inspections':
+      parts = [
+        labelled('strength_frames', num('strength_frames')),
+        labelled('brood_frames', num('brood_frames')),
+        val('queen_seen') && Number(row.queen_seen) ? t('field.queen_seen') : null,
+        row.queen_cell_type && row.queen_cell_type !== 'none'
+          ? labelled('queen_cell_type', opt('queen_cell_type', 'queen_cell_type')) : null,
+        labelled('varroa_count', num('varroa_count')),
+        opt('health_status', 'health_status')
+      ];
+      break;
+    case 'feedings':
+      parts = [opt('feed_type', 'feed_type'), amount('amount', 'unit')];
+      break;
+    case 'treatments':
+      parts = [opt('treat_target', 'target'), val('product'),
+               amount('dose', 'unit'), opt('treat_method', 'method')];
+      break;
+    case 'harvests':
+      parts = [val('honey_type'),
+               num('net_kg') === null ? null : `${num('net_kg')} kg`,
+               num('water_content') === null ? null : `${num('water_content')} %`];
+      break;
+    case 'events':
+      parts = [opt('event_type', 'event_type'), val('title')];
+      break;
+    case 'tasks':
+      parts = [opt('task_status', 'status'), val('title')];
+      break;
+    default:
+      parts = [];
+  }
+  // An event titled like its own type would otherwise be printed twice.
+  return [...new Set(parts.filter(p => p !== null && p !== ''))].join(' · ');
+}
+
 function recentLine(row) {
+  const summary = recordSummary(row);
   return `<li>
     <time>${esc(fmtDate(row.record_date))}</time>
     <span class="what">
       <span class="pill pill--type">${esc(t('type.' + row.record_type))}</span>
       ${row.colony_name ? ` <b>${esc(row.colony_name)}</b>` : ''}
-      ${row.summary ? ` · ${esc(row.summary)}` : ''}
+      ${summary ? ` · ${esc(summary)}` : ''}
     </span></li>`;
 }
 
@@ -442,6 +513,12 @@ function colonyCard(c) {
   </article>`;
 }
 
+/** One label/value pair of a fact grid; empty values drop out entirely. */
+function fact(label, valueHtml) {
+  if (valueHtml === null || valueHtml === undefined || valueHtml === '') return '';
+  return `<div><dt>${esc(label)}</dt><dd>${valueHtml}</dd></div>`;
+}
+
 async function viewColony(id) {
   const [colony] = await api('colonies/list', { id });
   if (!colony) { location.hash = '#/colonies'; return; }
@@ -459,20 +536,20 @@ async function viewColony(id) {
        ${canWrite() ? `<button class="btn" id="edit-colony">${esc(t('common.edit'))}</button>` : ''}
      </div>
      <div class="card">
-       <div class="colony__meta" style="font-size:.9rem">
-         <span class="pill pill--${esc(colony.status)}">${esc(optLabel('colony_status', colony.status))}</span>
-         <span><b>${esc(t('field.apiary_id'))}:</b> ${esc(colony.apiary_name || '')}</span>
-         ${colony.race ? `<span><b>${esc(t('field.race'))}:</b> ${esc(optLabel('race', colony.race))}</span>` : ''}
-         ${colony.origin ? `<span><b>${esc(t('field.origin'))}:</b> ${esc(optLabel('origin', colony.origin))}</span>` : ''}
-         ${colony.hive_type ? `<span><b>${esc(t('field.hive_type'))}:</b> ${esc(optLabel('hive_type', colony.hive_type))}</span>` : ''}
-         ${colony.frame_size ? `<span><b>${esc(t('field.frame_size'))}:</b> ${esc(optLabel('frame_size', colony.frame_size))}</span>` : ''}
-         ${colony.box_count ? `<span><b>${esc(t('field.box_count'))}:</b> ${esc(colony.box_count)}</span>` : ''}
-         ${colony.established_on ? `<span><b>${esc(t('field.established_on'))}:</b> ${esc(fmtDate(colony.established_on))}</span>` : ''}
-         <span><b>${esc(t('colonies.queen'))}:</b> ${colony.queen_id
+       <dl class="facts">
+         ${fact(t('field.status'), `<span class="pill pill--${esc(colony.status)}">${esc(optLabel('colony_status', colony.status))}</span>`)}
+         ${fact(t('field.apiary_id'), esc(colony.apiary_name))}
+         ${fact(t('field.race'), esc(optLabel('race', colony.race)))}
+         ${fact(t('field.origin'), esc(optLabel('origin', colony.origin)))}
+         ${fact(t('field.hive_type'), esc(optLabel('hive_type', colony.hive_type)))}
+         ${fact(t('field.frame_size'), esc(optLabel('frame_size', colony.frame_size)))}
+         ${fact(t('field.box_count'), esc(colony.box_count))}
+         ${fact(t('field.established_on'), colony.established_on ? esc(fmtDate(colony.established_on)) : '')}
+         ${fact(t('colonies.queen'), colony.queen_id
             ? `<span class="queen-dot queen-dot--${esc(color || 'white')}"></span> ${esc(colony.queen_year || '')} ${esc(optLabel('race', colony.queen_race) || '')}`
-            : esc(t('colonies.no_queen'))}</span>
-       </div>
-       ${colony.notes ? `<p style="margin-bottom:0">${esc(colony.notes)}</p>` : ''}
+            : `<span class="muted">${esc(t('colonies.no_queen'))}</span>`)}
+       </dl>
+       ${colony.notes ? `<p class="facts__notes">${esc(colony.notes)}</p>` : ''}
      </div>
 
      <div class="tabs" id="colony-tabs">
@@ -1238,7 +1315,12 @@ function detailBlockHtml(row) {
 
     if (f.t === 'weather') {
       if (row.weather_temp !== null && row.weather_temp !== undefined && row.weather_temp !== '') {
-        current.items.push({ label: t('weather.title'), html: weatherValuesHtml(row), wide: true });
+        // The values are bare spans; .weather__values is what spaces them out.
+        current.items.push({
+          label: t('weather.title'),
+          html: `<div class="weather__values">${weatherValuesHtml(row)}</div>`,
+          wide: true
+        });
       }
       continue;
     }
@@ -1277,7 +1359,9 @@ async function runReport() {
   const out = $('#report-out');
   out.innerHTML = `<p class="muted">${esc(t('common.loading'))}</p>`;
   const detail = state.reportView === 'detail';
-  const data = await api(detail ? 'reports/detail' : 'reports/query', { filter: state.reportFilter });
+  // Both views read full records: the table's summary column is composed
+  // here so that option values appear in the chosen language.
+  const data = await api('reports/detail', { filter: state.reportFilter });
   const s = data.summary;
 
   const chip = (label, value) =>
@@ -1302,8 +1386,8 @@ async function runReport() {
             <td><span class="pill pill--type">${esc(t('type.' + r.record_type))}</span></td>
             <td>${esc(r.apiary_name || '')}</td>
             <td>${esc(r.colony_name || '')}</td>
-            <td>${esc(r.summary || '')}</td>
-            <td>${esc(r.notes || '')}</td>
+            <td>${esc(recordSummary(r))}</td>
+            <td>${esc(r.notes ?? r.description ?? '')}</td>
             <td>${esc(r.user_name || '')}</td>
           </tr>`).join('')}</tbody></table></div>`;
 
@@ -1312,7 +1396,8 @@ async function runReport() {
     chip(t('reports.varroa_avg'), s.varroa_avg),
     chip(t('reports.varroa_max'), s.varroa_max),
     chip(t('feedings.title'), s.feedings),
-    chip(t('reports.feed_total'), s.feed_total),
+    chip(t('reports.feed_kg'), s.feed_kg),
+    chip(t('reports.feed_l'), s.feed_l || null),
     chip(t('treatments.title'), s.treatments),
     chip(t('reports.harvest_kg'), s.harvest_kg),
     chip(t('reports.water_avg'), s.water_avg),

@@ -125,6 +125,14 @@ function report_types(array $filter): array
     return array_values(array_filter($filter['types'], fn($t) => isset($sources[$t])));
 }
 
+/**
+ * Condensed rows with a summary line composed in SQL.
+ *
+ * Only the CSV export still uses this. Both on-screen views read full records
+ * through report_query_detail() and compose their summary in the browser,
+ * where option values such as "syrup_3_2" have a translated name - something
+ * SQL cannot do.
+ */
 function report_query(array $filter): array
 {
     $sources = report_sources();
@@ -231,7 +239,9 @@ function report_summary(array $filter): array
     };
 
     $insp    = $only('inspections', 'inspections', 'inspected_at', 'COUNT(*) AS n, AVG(x.varroa_count) AS varroa_avg, MAX(x.varroa_count) AS varroa_max');
-    $feed    = $only('feedings', 'feedings', 'fed_at', "COUNT(*) AS n, SUM(CASE WHEN x.unit IN ('kg','l') THEN x.amount ELSE 0 END) AS total");
+    $feed    = $only('feedings', 'feedings', 'fed_at', "COUNT(*) AS n,
+        SUM(CASE WHEN x.unit = 'kg' THEN x.amount END) AS total_kg,
+        SUM(CASE WHEN x.unit = 'l'  THEN x.amount END) AS total_l");
     $treat   = $only('treatments', 'treatments', 'started_at', 'COUNT(*) AS n');
     $harvest = $only('harvests', 'harvests', 'harvested_at', 'COUNT(*) AS n, SUM(x.net_kg) AS total_kg, AVG(x.water_content) AS water_avg');
     $events  = $only('events', 'events', 'event_at', 'COUNT(*) AS n');
@@ -247,7 +257,8 @@ function report_summary(array $filter): array
         'varroa_avg'    => $num($insp, 'varroa_avg', 1),
         'varroa_max'    => $insp !== null && $insp['varroa_max'] !== null ? (int)$insp['varroa_max'] : null,
         'feedings'      => $cnt($feed),
-        'feed_total'    => $num($feed, 'total', 2, 0),
+        'feed_kg'       => $num($feed, 'total_kg', 2, 0),
+        'feed_l'        => $num($feed, 'total_l', 2, 0),
         'treatments'    => $cnt($treat),
         'harvests'      => $cnt($harvest),
         'harvest_kg'    => $num($harvest, 'total_kg', 2, 0),
@@ -334,17 +345,24 @@ function handle_stats(): void
         'colonies_total'    => (int)$one('SELECT COUNT(*) FROM colonies'),
         'inspections_year'  => (int)$one("SELECT COUNT(*) FROM inspections WHERE YEAR(inspected_at) = {$year}"),
         'harvest_year_kg'   => round((float)$one("SELECT COALESCE(SUM(net_kg),0) FROM harvests WHERE YEAR(harvested_at) = {$year}"), 2),
-        'feed_year'         => round((float)$one("SELECT COALESCE(SUM(amount),0) FROM feedings WHERE YEAR(fed_at) = {$year} AND unit IN ('kg','l')"), 2),
+        // Solid and liquid feed are counted apart: adding kilograms to litres
+        // would produce a number that means nothing.
+        'feed_year_kg'      => round((float)$one("SELECT COALESCE(SUM(amount),0) FROM feedings WHERE YEAR(fed_at) = {$year} AND unit = 'kg'"), 2),
+        'feed_year_l'       => round((float)$one("SELECT COALESCE(SUM(amount),0) FROM feedings WHERE YEAR(fed_at) = {$year} AND unit = 'l'"), 2),
         'tasks_open'        => (int)$one("SELECT COUNT(*) FROM tasks WHERE status = 'open'"),
         'tasks_overdue'     => (int)$one("SELECT COUNT(*) FROM tasks WHERE status = 'open' AND due_date < CURDATE()"),
         'year'              => (int)$year,
     ]);
 }
 
-/** Recent activity for the dashboard timeline. */
+/**
+ * Recent activity for the dashboard timeline. Full records, because the
+ * one-line summary is composed in the browser - option values like
+ * "syrup_3_2" only have a readable name there.
+ */
 function handle_recent(): void
 {
     require_login();
-    $rows = report_query(['date_from' => date('Y-m-d', strtotime('-60 days'))]);
+    $rows = report_query_detail(['date_from' => date('Y-m-d', strtotime('-60 days'))]);
     ok(array_slice($rows, 0, 40));
 }

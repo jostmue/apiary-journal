@@ -319,6 +319,22 @@ dialog::backdrop { background: rgba(20, 24, 15, .45); }
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+/* --- Fact grid: label above value, as many columns as fit ----------------- */
+.facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .7rem 1.2rem; margin: 0;
+}
+.facts > div { min-width: 0; }
+.facts dt {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin-bottom: .15rem;
+}
+.facts dd { margin: 0; font-size: .95rem; overflow-wrap: anywhere; }
+.facts__notes {
+  margin: .9rem 0 0; padding-top: .8rem; border-top: 1px solid var(--line);
+  white-space: pre-line;
+}
+
 /* --- Coordinate picker: address hits and click map ------------------------ */
 .geo-hits { display: flex; flex-direction: column; gap: .25rem; margin-top: .4rem; }
 .geo-hit {
