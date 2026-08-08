@@ -2016,8 +2016,7 @@ async function viewBackup() {
   $('#view').innerHTML =
     topbar(t('backup.title'),
       `<button class="btn btn--primary" id="bk-create">${esc(t('backup.create'))}</button>`) +
-    `<div class="alert alert--info">${esc(t('backup.hint'))}</div>
-     <div class="card">
+    `<div class="card">
        <h2>${esc(t('backup.list'))}</h2>
        <p class="muted">${esc(t('backup.dir'))}: <span class="mono">${esc(data.dir)}</span></p>
        ${data.files.length ? `<div class="table-wrap"><table class="data">

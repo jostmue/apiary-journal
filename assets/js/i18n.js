@@ -187,7 +187,6 @@ const STRINGS = {
     'backup.size': 'Größe',
     'backup.created_at': 'Erstellt',
     'backup.dir': 'Ablageort',
-    'backup.hint': 'Zusätzlich empfiehlt sich Hyper Backup auf dem NAS für die Datenbank selbst.',
 
     'log.title': 'Protokoll',
     'log.action': 'Aktion',
@@ -716,7 +715,6 @@ const STRINGS = {
     'backup.size': 'Size',
     'backup.created_at': 'Created',
     'backup.dir': 'Location',
-    'backup.hint': 'On top of this, Hyper Backup on the NAS is recommended for the database itself.',
 
     'log.title': 'Audit log',
     'log.action': 'Action',
