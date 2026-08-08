@@ -9,7 +9,10 @@ const session = {
   csrf: null,
   weatherEnabled: false,
   map: null,           // tile config from auth/me, null when disabled
-  mail: false          // whether a password reset can be sent at all
+  mail: false,         // whether a password reset can be sent at all
+  mode: 'private',     // 'private' or 'open', from auth/me
+  canRegister: false,
+  legal: {}
 };
 
 async function api(route, body) {

@@ -148,6 +148,12 @@ function do_login(string $username, string $password): void
     if ((int)$row['is_active'] !== 1) {
         fail('account_disabled', 403);
     }
+    // A self-registered account works only once its address is confirmed.
+    // Accounts created by an administrator are marked confirmed on creation,
+    // so a private installation never meets this.
+    if (array_key_exists('email_verified_at', $row) && $row['email_verified_at'] === null) {
+        fail('email_not_verified', 403);
+    }
 
     // Refresh the hash if PHP's default cost changed.
     if (password_needs_rehash($row['password_hash'], PASSWORD_DEFAULT)) {

@@ -15,7 +15,7 @@
 
 declare(strict_types=1);
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * Version 1 is the schema db/schema.sql creates. An installation from before
@@ -104,6 +104,10 @@ function migrations(): array
 
         3 => function (PDO $pdo): void {
             migrate_add_groups($pdo);
+        },
+
+        4 => function (PDO $pdo): void {
+            migrate_add_registration($pdo);
         },
     ];
 }
@@ -291,4 +295,41 @@ function migrate_if_needed(): int
     }
 
     return $from;
+}
+
+/**
+ * Version 4: self-registration.
+ *
+ * Accounts gain the two dates the open mode needs: when the address was
+ * confirmed and when the terms were accepted. Everyone who exists at this
+ * point was created by an administrator, so their address counts as confirmed
+ * - otherwise an upgrade would lock out every user at once.
+ */
+function migrate_add_registration(PDO $pdo): void
+{
+    if (!column_exists($pdo, 'users', 'email_verified_at')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN email_verified_at DATETIME NULL AFTER email');
+        $pdo->exec('UPDATE users SET email_verified_at = created_at');
+    }
+    if (!column_exists($pdo, 'users', 'terms_accepted_at')) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN terms_accepted_at DATETIME NULL AFTER email_verified_at');
+    }
+    if (!table_exists($pdo, 'email_verifications')) {
+        $pdo->exec(
+            "CREATE TABLE email_verifications (
+               id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+               user_id     INT UNSIGNED NOT NULL,
+               token_hash  CHAR(64)     NOT NULL,
+               expires_at  DATETIME     NOT NULL,
+               used_at     DATETIME     NULL,
+               created_ip  VARCHAR(45)  NULL,
+               created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               PRIMARY KEY (id),
+               UNIQUE KEY uq_verify_token (token_hash),
+               KEY ix_verify_user (user_id),
+               CONSTRAINT fk_verify_user FOREIGN KEY (user_id)
+                 REFERENCES users(id) ON DELETE CASCADE
+             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
 }

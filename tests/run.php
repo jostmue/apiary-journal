@@ -14,6 +14,7 @@ declare(strict_types=1);
 require __DIR__ . '/../api/lib/core.php';
 require __DIR__ . '/../api/lib/mail.php';
 require __DIR__ . '/../api/lib/access.php';
+require __DIR__ . '/../api/lib/registration.php';
 
 $passed = 0;
 $failed = 0;
@@ -149,6 +150,18 @@ check('with groups: ownership or group',
     owned_sql_for('c', 7, [2, 5]), '(c.owner_id = 7 OR c.group_id IN (2,5))');
 check('group ids are forced to integers',
     owned_sql_for('a', 7, ['3; DROP TABLE users']), '(a.owner_id = 7 OR a.group_id IN (3))');
+
+// --- operating mode ---------------------------------------------------------
+// Only the exact word opens an installation up; anything else stays private,
+// so a typo cannot expose one by accident.
+check('open is open',            normalise_mode('open'), 'open');
+check('case is ignored',         normalise_mode('OPEN'), 'open');
+check('surrounding space is ok', normalise_mode('  open  '), 'open');
+check('private stays private',   normalise_mode('private'), 'private');
+check('typo stays private',      normalise_mode('opne'), 'private');
+check('empty stays private',     normalise_mode(''), 'private');
+check('missing stays private',   normalise_mode(null), 'private');
+check('true is not open',        normalise_mode(true), 'private');
 
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed === 0 ? 0 : 1);

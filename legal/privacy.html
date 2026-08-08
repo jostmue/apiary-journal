@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datenschutzerkl&auml;rung &middot; Apiary-Journal</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+</head>
+<body>
+<main class="main" style="max-width:44rem">
+  <h1>Datenschutzerklärung</h1>
+
+  <div class="alert alert--bad">
+    <strong>Diese Seite ist ein Platzhalter.</strong>
+    Wer diese Anwendung als offenen Dienst betreibt, ist Verantwortlicher im
+    Sinne der DSGVO und muss hier eine eigene Erklärung einsetzen. Der Text
+    unten beschreibt, was die Software tatsächlich verarbeitet, und ist als
+    Ausgangspunkt gedacht – keine Rechtsberatung.
+  </div>
+
+  <h2>Verantwortlicher</h2>
+  <p><em>Name und Kontaktdaten des Betreibers einsetzen.</em></p>
+
+  <h2>Welche Daten verarbeitet werden</h2>
+  <ul>
+    <li><strong>Konto:</strong> Benutzername, Name, E-Mail-Adresse, Passwort
+      als bcrypt-Hash, Sprache, Zeitpunkt der Registrierung, der Bestätigung
+      und der letzten Anmeldung.</li>
+    <li><strong>Tagebuchdaten:</strong> Standorte samt Koordinaten, Völker,
+      Königinnen, Durchsichten, Fütterungen, Behandlungen, Ernten, Ereignisse
+      und Aufgaben.</li>
+    <li><strong>Protokoll:</strong> sicherheitsrelevante Vorgänge wie
+      Anmeldungen, fehlgeschlagene Anmeldeversuche und Änderungen an Konten,
+      jeweils mit IP-Adresse.</li>
+  </ul>
+
+  <h2>Weitergabe an Dritte</h2>
+  <p>Die Anwendung ruft bei Bedarf externe Dienste auf. Der Server fragt
+  <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>
+  nach Wetterdaten zu den Koordinaten eines Standorts und
+  <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener">Nominatim</a>
+  nach Koordinaten zu einer Adresse. Ist die Karte aktiviert, lädt der
+  <em>Browser</em> Kartenkacheln von OpenStreetMap; dabei erfährt dieser Dienst
+  den ungefähren Kartenausschnitt und die IP-Adresse des Nutzers.</p>
+
+  <h2>Speicherdauer</h2>
+  <p>Kontodaten bleiben, bis das Konto gelöscht wird. Nicht bestätigte Konten
+  werden nach sieben Tagen entfernt. <em>Aufbewahrungsdauer des Protokolls
+  festlegen.</em></p>
+
+  <h2>Rechte der Betroffenen</h2>
+  <p>Unter „Mein Konto“ lassen sich alle eigenen Daten als Datei herunterladen
+  und das Konto samt Daten löschen. Einträge, die an Völkern anderer Nutzer
+  erfasst wurden, bleiben dort erhalten, verlieren aber den Bezug zur Person.
+  Daneben bestehen die Rechte auf Auskunft, Berichtigung, Einschränkung,
+  Widerspruch und Beschwerde bei einer Aufsichtsbehörde.</p>
+
+  <p style="margin-top:2rem"><a href="../index.html">Zurück zur Anwendung</a></p>
+</main>
+</body>
+</html>

@@ -52,6 +52,23 @@ return [
         // the internet.
         'base_url'        => '',
 
+        // Operating mode.
+        //   'private'  accounts are created by an administrator, there is no
+        //              registration form, and the backup page offers full
+        //              snapshots. This is the setup on a NAS at home.
+        //   'open'     anyone may register, confirms their address by e-mail
+        //              and accepts the terms. Full snapshots disappear from
+        //              the interface, because they would hand an administrator
+        //              every user's data - see docs/OPEN_SERVICE.md.
+        // Either way each user can export their own data and delete their
+        // account.
+        'mode'            => 'private',
+
+        // Shown during registration in open mode. Leave empty to use the
+        // bundled pages under legal/, which you are expected to fill in.
+        'terms_url'       => '',
+        'privacy_url'     => '',
+
         // Session lifetime in minutes.
         'session_minutes' => 480,
 

@@ -123,6 +123,9 @@ async function boot() {
     session.weatherEnabled = !!me.weather;
     session.map = me.map || null;   // null when map tiles are switched off
     session.mail = !!me.mail;       // no mail configured, no reset link
+    session.mode = me.mode || 'private';
+    session.canRegister = !!me.can_register;
+    session.legal = me.legal || {};
 
     // A reset link has to work before anyone is signed in, and takes
     // precedence over whatever session may still exist.
@@ -130,6 +133,15 @@ async function boot() {
     if (reset) {
       setLocale(me.locale || getLocale());
       renderReset(reset[1]);
+      return;
+    }
+
+    // Confirming an address happens before the account can sign in, so this
+    // has to run whether or not a session exists.
+    const verify = /^#\/verify\/([a-f0-9]{64})$/.exec(location.hash);
+    if (verify) {
+      setLocale(me.locale || getLocale());
+      await renderVerify(verify[1]);
       return;
     }
     // An invitation link works the same way before signing in.
@@ -172,6 +184,7 @@ function renderLogin() {
         </label>
         <div class="form-actions" style="margin-top:1rem">
           ${session.mail ? `<button class="btn btn--ghost btn--sm" type="button" id="forgot">${esc(t('login.forgot'))}</button>` : ''}
+          ${session.canRegister ? `<button class="btn btn--ghost btn--sm" type="button" id="register">${esc(t('register.link'))}</button>` : ''}
           <div style="flex:1"></div>
           <button class="btn btn--primary" type="submit">${esc(t('common.login'))}</button>
         </div>
@@ -181,6 +194,7 @@ function renderLogin() {
     <div class="toast-host" id="toasts"></div>`;
 
   $('#forgot')?.addEventListener('click', renderForgot);
+  $('#register')?.addEventListener('click', renderRegister);
 
   $('#login-form').addEventListener('submit', async ev => {
     ev.preventDefault();
@@ -200,6 +214,95 @@ function renderLogin() {
   });
 
   bindLangSwitch(() => renderLogin());
+}
+
+/**
+ * Registration, shown only where the server says it is open. The reply is the
+ * same whether or not the name was free, so the form cannot be used to find
+ * out who already has an account here.
+ */
+function renderRegister() {
+  const legal = session.legal || {};
+  document.body.className = 'login-page';
+  document.body.innerHTML = `
+    <main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <form class="card" id="register-form">
+        <h2>${esc(t('register.title'))}</h2>
+        <p class="muted">${esc(t('register.hint'))}</p>
+        <label>${esc(t('common.username'))}
+          <input name="username" required autofocus autocomplete="username"
+                 pattern="[A-Za-z0-9._-]{3,60}" title="${esc(t('register.username_rule'))}">
+        </label>
+        <label style="margin-top:.7rem">${esc(t('field.full_name'))}
+          <input name="full_name" autocomplete="name">
+        </label>
+        <label style="margin-top:.7rem">${esc(t('field.email'))}
+          <input name="email" type="email" required autocomplete="email">
+        </label>
+        <label style="margin-top:.7rem">${esc(t('common.password'))}
+          <input name="password" type="password" minlength="8" required autocomplete="new-password">
+        </label>
+        <p class="muted" style="margin:.2rem 0 0">${esc(t('users.password_hint_new'))}</p>
+
+        <!-- Left out of sight on purpose: a person never fills this in, a
+             script that submits every field it finds does. -->
+        <div class="hp" aria-hidden="true">
+          <label>Website<input name="website" tabindex="-1" autocomplete="off"></label>
+        </div>
+
+        <label class="check" style="margin-top:.9rem">
+          <input type="checkbox" name="terms" required>
+          <span>${t('register.terms_label', {
+            terms: `<a href="${esc(legal.terms || 'legal/terms.html')}" target="_blank" rel="noopener">${esc(t('register.terms'))}</a>`,
+            privacy: `<a href="${esc(legal.privacy || 'legal/privacy.html')}" target="_blank" rel="noopener">${esc(t('register.privacy'))}</a>`
+          })}</span>
+        </label>
+
+        <div class="form-actions" style="margin-top:1rem">
+          <button class="btn btn--ghost btn--sm" type="button" id="back">${esc(t('common.back'))}</button>
+          <div style="flex:1"></div>
+          <button class="btn btn--primary" type="submit">${esc(t('register.submit'))}</button>
+        </div>
+      </form>
+    </main>
+    <div class="toast-host" id="toasts"></div>`;
+
+  $('#back').addEventListener('click', renderLogin);
+  $('#register-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    try {
+      await api('auth/register', {
+        username: fd.get('username'),
+        full_name: fd.get('full_name'),
+        email: fd.get('email'),
+        password: fd.get('password'),
+        terms: fd.get('terms') ? 1 : 0,
+        website: fd.get('website'),
+        locale: getLocale()
+      });
+      renderLoginNotice(t('register.sent'));
+    } catch (e) { showError(e); }
+  });
+}
+
+/** Landing page of the confirmation link. */
+async function renderVerify(token) {
+  document.body.className = 'login-page';
+  document.body.innerHTML = `
+    <main class="login">
+      <div class="login__brand"><span class="brand__mark"></span><h1>${esc(t('app.title'))}</h1></div>
+      <div class="card"><p id="verify-msg">${esc(t('common.loading'))}</p></div>
+    </main>
+    <div class="toast-host" id="toasts"></div>`;
+  try {
+    await api('auth/verify', { token });
+    history.replaceState(null, '', location.pathname + location.search);
+    renderLoginNotice(t('register.verified'));
+  } catch (e) {
+    $('#verify-msg').textContent = t(e.message || 'err.verify_token_invalid');
+  }
 }
 
 /** Ask for a reset link. The answer never says whether the account exists. */
@@ -371,7 +474,11 @@ function renderNav() {
     ['#/profile', 'nav.profile']
   ];
   if (isAdmin()) {
-    items.push(['#/users', 'nav.users'], ['#/backup', 'nav.backup'], ['#/log', 'nav.log']);
+    // Full snapshots do not exist in open mode, so the entry would lead
+    // to a page that only reports a refusal.
+    items.push(['#/users', 'nav.users']);
+    if (session.mode !== 'open') items.push(['#/backup', 'nav.backup']);
+    items.push(['#/log', 'nav.log']);
   }
   const current = location.hash || '#/dashboard';
   $('#nav').innerHTML = items.map(([href, key]) => {
@@ -1717,6 +1824,26 @@ async function viewProfile() {
        <div class="form-actions"><button class="btn btn--primary" type="submit">${esc(t('common.save'))}</button></div>
      </form>`;
 
+  $('#view').insertAdjacentHTML('beforeend', `
+    <div class="card">
+      <h2>${esc(t('account.export_title'))}</h2>
+      <p class="muted">${esc(t('account.export_hint'))}</p>
+      <div class="form-actions"><button class="btn" id="acc-export">${esc(t('account.export'))}</button></div>
+    </div>
+    <div class="card">
+      <h2>${esc(t('account.delete_title'))}</h2>
+      <p class="muted">${esc(t('account.delete_hint'))}</p>
+      <div class="form-actions"><button class="btn btn--danger" id="acc-delete">${esc(t('account.delete'))}</button></div>
+    </div>`);
+
+  $('#acc-export').addEventListener('click', async () => {
+    try {
+      await apiDownload('account/export', {}, 'apiary-journal-export.json');
+    } catch (e) { showError(e); }
+  });
+
+  $('#acc-delete').addEventListener('click', openDeleteAccount);
+
   $('#profile-form').addEventListener('submit', async ev => {
     ev.preventDefault();
     const fd = new FormData(ev.target);
@@ -2005,6 +2132,45 @@ function openSimpleForm(title, fields, onSubmit) {
       } catch (e) { showError(e); }
     });
     dlg.showModal();
+  });
+}
+
+/**
+ * Deleting takes effect at once, so it asks for the password and for a typed
+ * word - a misplaced click should not be able to do this.
+ */
+function openDeleteAccount() {
+  const dlg = $('#dialog');
+  dlg.innerHTML = `<form class="dialog-form" id="del-form">
+      <h2>${esc(t('account.delete_title'))}</h2>
+      <p class="muted">${esc(t('account.delete_warning'))}</p>
+      <label>${esc(t('common.password'))}
+        <input name="password" type="password" required autocomplete="current-password">
+      </label>
+      <label>${esc(t('account.delete_confirm_label', { word: 'DELETE' }))}
+        <input name="confirm" required autocomplete="off" placeholder="DELETE">
+      </label>
+      <div class="form-actions">
+        <button class="btn" type="button" id="del-cancel">${esc(t('common.cancel'))}</button>
+        <div style="flex:1"></div>
+        <button class="btn btn--danger" type="submit">${esc(t('account.delete'))}</button>
+      </div>
+    </form>`;
+  dlg.showModal();
+
+  $('#del-cancel').addEventListener('click', () => { dlg.close(); dlg.innerHTML = ''; });
+  $('#del-form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    try {
+      await api('account/delete', { password: fd.get('password'), confirm: fd.get('confirm') });
+      dlg.close();
+      dlg.innerHTML = '';
+      session.user = null;
+      session.csrf = null;
+      location.hash = '';
+      renderLoginNotice(t('account.deleted'));
+    } catch (e) { showError(e); }
   });
 }
 

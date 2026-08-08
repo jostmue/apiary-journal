@@ -106,6 +106,9 @@ api/lib/users.php       user management and profile
 api/lib/access.php      the single rule for who may see and change what
 api/lib/groups.php      groups, members and invitations
 api/lib/recovery.php    forgotten password: request a link, set a new password
+api/lib/registration.php self-registration and address confirmation (open mode)
+api/lib/account.php     export your own data, delete your own account
+legal/                  placeholder terms and privacy pages
 api/lib/mail.php        mail delivery, PHP mail() or a direct SMTP session
 api/lib/migrate.php     schema version and migration steps
 deploy/                 annotated nginx and Apache samples
@@ -210,6 +213,26 @@ handler does not execute - worth knowing before you add one.
 
 nginx ignores `.htaccess`, so on nginx the two bundled files protect nothing;
 use the sample.
+
+## Two operating modes
+
+`app.mode` in `api/config.php` decides how people get an account:
+
+- **`private`** (default) - an administrator creates accounts, there is no
+  registration form, and the backup page offers full snapshots. This is the
+  arrangement on a NAS at home, and it is what an upgrade leaves you with.
+- **`open`** - anyone may register, confirms their address by e-mail and
+  accepts the terms. Full snapshots disappear from the interface, because
+  handing an administrator every user's data would quietly undo the rule that
+  they see none of it; back the database up at server level instead.
+
+Either way each user can export their own data and delete their account under
+*My account*.
+
+Running in open mode makes you a data controller under the GDPR. The pages in
+`legal/` are placeholders carrying the outline of what this software actually
+processes - replace them with your own texts before letting strangers in, or
+point `app.terms_url` and `app.privacy_url` somewhere else.
 
 ## Forgotten password
 

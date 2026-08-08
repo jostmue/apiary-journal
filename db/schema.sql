@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   username       VARCHAR(60)  NOT NULL,
   full_name      VARCHAR(120) NULL,
   email          VARCHAR(160) NULL,
+  email_verified_at DATETIME  NULL,
+  terms_accepted_at DATETIME  NULL,
   password_hash  VARCHAR(255) NOT NULL,
   role           ENUM('admin','beekeeper','viewer') NOT NULL DEFAULT 'beekeeper',
   locale         ENUM('de','en') NOT NULL DEFAULT 'de',
@@ -268,9 +270,25 @@ CREATE TABLE IF NOT EXISTS password_resets (
   CONSTRAINT fk_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Confirmation links for self-registered accounts. Like password_resets,
+-- only the hash of the token is kept.
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id     INT UNSIGNED NOT NULL,
+  token_hash  CHAR(64)     NOT NULL,
+  expires_at  DATETIME     NOT NULL,
+  used_at     DATETIME     NULL,
+  created_ip  VARCHAR(45)  NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_verify_token (token_hash),
+  KEY ix_verify_user (user_id),
+  CONSTRAINT fk_verify_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Which migration steps this schema already contains. api/lib/migrate.php
 -- compares it against SCHEMA_VERSION and applies whatever is missing.
-INSERT INTO settings (k, v) VALUES ('db_version', '2')
+INSERT INTO settings (k, v) VALUES ('db_version', '4')
   ON DUPLICATE KEY UPDATE v = VALUES(v);
 
 SET FOREIGN_KEY_CHECKS = 1;

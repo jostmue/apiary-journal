@@ -25,6 +25,8 @@ require __DIR__ . '/lib/backup.php';
 require __DIR__ . '/lib/users.php';
 require __DIR__ . '/lib/mail.php';
 require __DIR__ . '/lib/recovery.php';
+require __DIR__ . '/lib/registration.php';
+require __DIR__ . '/lib/account.php';
 require __DIR__ . '/lib/groups.php';
 
 set_exception_handler(function (Throwable $e) {
@@ -58,6 +60,9 @@ switch ($route) {
             'locale'  => $u['locale'] ?? (config()['app']['default_locale'] ?? 'de'),
             'weather' => (bool)(config()['weather']['enabled'] ?? false),
             'mail'    => mail_enabled(),
+            'mode'    => app_mode(),
+            'can_register' => registration_open(),
+            'legal'   => legal_urls(),
             'map'     => empty($map['enabled']) ? null : [
                 'tile_url'    => $map['tile_url'] ?? '',
                 'attribution' => $map['attribution'] ?? '',
@@ -80,6 +85,15 @@ switch ($route) {
         handle_reset_password();
         break;
 
+    // Self-registration. Refuses outright in private mode.
+    case 'auth/register':
+        handle_register();
+        break;
+
+    case 'auth/verify':
+        handle_verify_email();
+        break;
+
     // Someone following an invitation link has usually not signed in yet, so
     // the preview has to work without a session. It only tells whoever holds
     // the token what they were invited to - which they were sent by mail.
@@ -90,6 +104,13 @@ switch ($route) {
 
 // --- everything below requires a session -----------------------------------
 require_login();
+
+// A full snapshot holds every user's data, which would quietly undo the rule
+// that an administrator sees none of it. In open mode the operator backs the
+// database up at server level instead.
+if (app_mode() === 'open' && strncmp($route, 'backup/', 7) === 0) {
+    fail('backup_disabled_open_mode', 403);
+}
 
 switch ($route) {
     // journal records --------------------------------------------------------
@@ -154,6 +175,8 @@ switch ($route) {
     case 'users/save':         handle_users_save(); break;
     case 'users/delete':       handle_users_delete(); break;
     case 'profile/save':       handle_profile_save(); break;
+    case 'account/export':     handle_account_export(); break;
+    case 'account/delete':     handle_account_delete(); break;
     case 'log/list':           handle_activity_log(); break;
 
     // backup -----------------------------------------------------------------

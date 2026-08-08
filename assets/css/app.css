@@ -249,6 +249,10 @@ dialog::backdrop { background: rgba(20, 24, 15, .45); }
    body has to supply its own. */
 .dialog-form { padding: 1.2rem; display: flex; flex-direction: column; gap: .7rem; }
 .dialog-form h2 { margin: 0; }
+/* A field kept away from people but left in the document, so a script
+   that fills in everything it finds gives itself away. display:none
+   would be too obvious to skip. */
+.hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 
 /* --- Weather block -------------------------------------------------------- */
 .weather {

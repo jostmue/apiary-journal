@@ -39,16 +39,25 @@ function reset_base_url(): string
     return $scheme . '://' . $host . $dir;
 }
 
-function reset_requests_recent(string $column, string $value): int
+/**
+ * How often an action was logged for one account name or address inside the
+ * rate limit window. $column is a literal from the call sites, never input.
+ */
+function reset_requests_recent_action(string $action, string $column, string $value): int
 {
     $stmt = db()->prepare(
         "SELECT COUNT(*) FROM activity_log
-         WHERE action = 'password_reset_request'
+         WHERE action = ?
            AND created_at > (NOW() - INTERVAL " . LOGIN_WINDOW_MINUTES . " MINUTE)
            AND {$column} = ?"
     );
-    $stmt->execute([$value]);
+    $stmt->execute([$action, $value]);
     return (int)$stmt->fetchColumn();
+}
+
+function reset_requests_recent(string $column, string $value): int
+{
+    return reset_requests_recent_action('password_reset_request', $column, $value);
 }
 
 /** POST auth/forgot  {login: "<user name or e-mail>"} */
